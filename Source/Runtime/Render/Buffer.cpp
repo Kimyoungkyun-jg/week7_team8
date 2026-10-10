@@ -28,6 +28,18 @@ FConstantBuffer::FConstantBuffer(ID3D11Device* Device, const D3D11_BUFFER_DESC& 
 {
 }
 
+FStructuredBuffer::FStructuredBuffer(ID3D11Device* Device, const D3D11_BUFFER_DESC& Desc, uint32 InCapacity)
+	: FBuffer(Device, Desc), Capacity(InCapacity)
+{
+	if (!Buffer) return;
+	D3D11_SHADER_RESOURCE_VIEW_DESC ViewDesc{};
+	ViewDesc.Format = DXGI_FORMAT_UNKNOWN;
+	ViewDesc.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+	ViewDesc.Buffer.NumElements = InCapacity;
+	if (FAILED(Device->CreateShaderResourceView(Buffer.Get(), &ViewDesc, SRV.GetAddressOf())))
+		HTR_LOG(Warning, "Failed to create structured buffer SRV");
+}
+
 FVertexBuffer::FVertexBuffer(ID3D11Device* Device, const D3D11_BUFFER_DESC& Desc, uint32 InStride, const void* InitialData)
 	:FBuffer(Device, Desc, InitialData)
 {

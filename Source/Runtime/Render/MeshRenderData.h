@@ -19,8 +19,8 @@ struct FCachedMeshLOD
     uint32 NumSections = 0;
 };
 
-// Shared by objects with the same mesh and resolved material slots.
-// These are asset properties, never cached visibility or LOD decisions.
+// 메시와 확정된 머티리얼 슬롯이 같은 객체끼리 공유한다.
+// 이 값들은 에셋 속성이며, 가시성이나 LOD 판정 결과를 저장하지 않는다.
 struct FMeshRenderState
 {
     TArray<FCachedMeshSection> Sections;

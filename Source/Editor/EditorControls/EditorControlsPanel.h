@@ -36,7 +36,7 @@ public:
 
 	int32 SelectedIndex = 0;
 
-	const char* Items[10] = {"StaticMesh", "Particle", "Text", "SpotLight", "SpinActor", "PointLight", "DirectionalLight", "HeightFog", "FireBall", "Projectile" };
+	const char* Items[7] = {"StaticMesh", "Particle", "Text", "SpinActor", "HeightFog", "FireBall", "Projectile" };
 
 	FGizmo* Gizmo = nullptr;
 	int32 GizmoSelectedIndex = 0;
@@ -50,10 +50,7 @@ public:
 		AStaticMeshActor::StaticClass(),
 		AParticleActor::StaticClass(),
 		ATextRenderActor::StaticClass(),
-		ASpotLight::StaticClass(),
 		ASpinActor::StaticClass(),
-		APointLightActor::StaticClass(),
-		ADirectionalLight::StaticClass(),
 		AExponentialHeightFogActor::StaticClass(),
 		AFireBallActor::StaticClass(),
 		AProjectileActor::StaticClass(),

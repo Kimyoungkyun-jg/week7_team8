@@ -25,6 +25,7 @@
 #include "Camera/CameraComponent.h"
 #include "Component/PointLightComponent.h"
 #include "GameFramework/Actor/LightActor.h"
+#include "GameFramework/Actor/PointLightActor.h"
 #include "GameFramework/Actor/SpotLight.h"
 #include "Component/ExponentialHeightFogComponent.h"
 
@@ -1039,19 +1040,26 @@ void UEditorEngine::RenderFrame(FEditorViewportClient *ViewClient,
 	const FViewportSettings ViewportSetting{0, 0, Width, Height, 0.0f, 1.0f};
 
 	// 라인 배처 렌더링
-	if (!bIsPIE &&
-			SettingsPanel->GetSettings().bDrawBatchLine) {
+	const bool bIsActiveViewport = ViewportsPanel && ViewIndex == ViewportsPanel->GetActiveViewIndex();
+	const bool bDrawSelectedLight = bIsActiveViewport && Gizmo->GetTarget() &&
+		(Cast<ASpotLight>(Gizmo->GetTarget()->GetOwner()) ||
+		 Cast<APointLightActor>(Gizmo->GetTarget()->GetOwner()));
+	if (!bIsPIE && (SettingsPanel->GetSettings().bDrawBatchLine || bDrawSelectedLight)) {
 		LineBatcher->BeginFrame();
 
-		if (SettingsPanel->GetSettings().bDrawBoundingBox) {
+		if (SettingsPanel->GetSettings().bDrawBatchLine && SettingsPanel->GetSettings().bDrawBoundingBox) {
 			LineBatcher->BuildVertexBuffer();
 			EditorWorld->GetPathTracker().OnRender(LineBatcher.get());
 		}
 
-		if (Gizmo->GetTarget()) {
+		if (bDrawSelectedLight) {
 			if (ASpotLight* LightActor =
 				Cast<ASpotLight>(Gizmo->GetTarget()->GetOwner())) {
 				LightActor->GetSpotLightComponent()->DrawDebug(LineBatcher.get());
+			}
+			else if (APointLightActor* LightActor =
+				Cast<APointLightActor>(Gizmo->GetTarget()->GetOwner())) {
+				LightActor->GetPointLightComponent()->DrawDebug(LineBatcher.get());
 			}
 		}
 
@@ -1095,7 +1103,6 @@ void UEditorEngine::RenderFrame(FEditorViewportClient *ViewClient,
 	// 에디터 오버레이 렌더링
 	if (!bIsPIE) {
 		// 활성 뷰포트에만 아웃라인과 기즈모 렌더링
-		const bool bIsActiveViewport = (ViewportsPanel && ViewIndex == ViewportsPanel->GetActiveViewIndex());
 		if (Outline->GetTarget() && bIsActiveViewport) {
 			OutlineRenderer->OnRender(*Outline, SceneView.ViewProjectionMatrix,
 			ViewportSetting);

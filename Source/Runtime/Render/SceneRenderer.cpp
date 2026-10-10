@@ -22,6 +22,24 @@ FSceneRenderer::FSceneRenderer(UWorld* InWorld, const FSceneView& InView, FScene
 	CachedViewContext = View.ToViewContext();
 }
 
+// 구체와 절두체 평면 교차 판별
+static bool IntersectSphereFrustum(const FVector4& PositionRadius, const FPlane (&Planes)[6])
+{
+	const float Radius = PositionRadius.W;
+	for (const FPlane& Plane : Planes)
+	{
+		const float Distance = Plane.Normal.X * PositionRadius.X +
+			Plane.Normal.Y * PositionRadius.Y +
+			Plane.Normal.Z * PositionRadius.Z + Plane.Distance;
+
+		if (Distance < -Radius)
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
 // 가시성 검사 및 렌더 큐 수집
 void FSceneRenderer::InitViews(FRenderer* Renderer, const FAmbientLightRenderData& AmbientLight)
 {
@@ -42,32 +60,23 @@ void FSceneRenderer::InitViews(FRenderer* Renderer, const FAmbientLightRenderDat
 	for (const FDirectionalLightSceneProxy* Light : DirectionalLights)
 	{
 		if (!Light->IsEnabled() || !Light->IsShown(View.bGameView)) continue;
-		if (RenderData.VisibleDirectionalLights.Num() >= MaxDirectionalLights) break;
 		RenderData.VisibleDirectionalLights.Add(Light->GetRenderData());
 	}
 
-	for (const FLightSceneProxy* Light : World->GetScene().GetLights()) // 월드에 있는 모든 라이트 정보 가져오기
+	for (const FPointLightSceneProxy* Light : World->GetScene().GetPointLights())
 	{
 		if (!Light->IsEnabled() || !Light->IsShown(View.bGameView)) continue;
 		const FPointLightRenderData& Data = Light->GetRenderData();
-		const float Radius = Data.PositionRadius.W;
-		bool bInView = true;
-		for (const FPlane& Plane : View.Frustum.Planes)
-		{
-			const float Distance = Plane.Normal.X * Data.PositionRadius.X +
-				Plane.Normal.Y * Data.PositionRadius.Y +
-				Plane.Normal.Z * Data.PositionRadius.Z + Plane.Distance;
-			const float NormalLength = std::sqrt(Plane.Normal.X * Plane.Normal.X +
-				Plane.Normal.Y * Plane.Normal.Y + Plane.Normal.Z * Plane.Normal.Z);
-			if (Distance < -Radius * NormalLength)
-			{
-				bInView = false;
-				break;
-			}
-		}
-		if (!bInView) continue;
-		if (RenderData.VisiblePointLights.Num() >= MaxDeferredPointLights) break;
+		if (!IntersectSphereFrustum(Data.PositionRadius, View.Frustum.Planes)) continue;
 		RenderData.VisiblePointLights.Add(Data);
+	}
+
+	for (const FSpotLightSceneProxy* Light : World->GetScene().GetSpotLights())
+	{
+		if (!Light->IsEnabled() || !Light->IsShown(View.bGameView)) continue;
+		const FSpotLightRenderData& Data = Light->GetRenderData();
+		if (!IntersectSphereFrustum(Data.PositionRadius, View.Frustum.Planes)) continue;
+		RenderData.VisibleSpotLights.Add(Data);
 	}
 }
 
@@ -87,8 +96,8 @@ bool FSceneRenderer::RenderForwardOpaque(FRenderer* Renderer, ELightingModel Lig
 	if (!Renderer) return false;
 	PrepareDrawData(Renderer, RenderData);
 	return Renderer->RenderForwardOpaque(View, RenderData.RenderQueue, RenderData.AmbientLight,
-		RenderData.VisibleDirectionalLights,
-		RenderData.VisiblePointLights, LightingModel);
+		RenderData.VisibleDirectionalLights, RenderData.VisiblePointLights,
+		RenderData.VisibleSpotLights, LightingModel);
 }
 
 void FSceneRenderer::RenderDeferredLighting(FRenderer* Renderer, const FDeferredViewTargets& Targets)
@@ -96,7 +105,7 @@ void FSceneRenderer::RenderDeferredLighting(FRenderer* Renderer, const FDeferred
 	if (Renderer)
 		Renderer->DrawDeferredLighting(View, Targets, RenderData.AmbientLight,
 			RenderData.VisibleDirectionalLights,
-			RenderData.VisiblePointLights);
+			RenderData.VisiblePointLights, RenderData.VisibleSpotLights);
 }
 
 void FSceneRenderer::RenderToneMap(FRenderer* Renderer, const FDeferredViewTargets& Targets)
@@ -294,7 +303,7 @@ void FSceneRenderer::GatherRenderPackets(FScene& Scene, FSceneRenderData& Data,
 				}
 			});
 
-		// Count this view's static draws. Bind its groups only when it is rendered.
+	// 이 뷰의 스태틱 드로우 수를 세고, 실제 렌더링할 때에만 해당 묶음을 바인딩한다.
 		uint32 StaticDraws = 0;
 		if (Renderer)
 		{

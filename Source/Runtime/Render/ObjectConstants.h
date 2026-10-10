@@ -22,7 +22,7 @@ inline FPerObjectConstants MakePerObjectConstants(const FMatrix& World)
 static_assert(sizeof(FPerObjectConstants) == sizeof(FMatrix) * 2);
 static_assert(sizeof(FPerObjectConstants) <= ObjectSlotBytes);
 
-// UberLit.hlsl PerObject (b0) and MaterialParams (b2).
+// UberLit.hlsl의 PerObject(b0)와 MaterialParams(b2)에 대응한다.
 struct FForwardObjectConstants
 {
 	FMatrix World;

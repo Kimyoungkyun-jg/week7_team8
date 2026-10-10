@@ -14,13 +14,16 @@ public:
 	void RemovePrimitive(UPrimitiveComponent* Component);
 	// 모든 프록시를 한 번에 지운다. 액터를 통째로 지우기 전(ClearWorld)에 불러야 지워진 컴포넌트를 가리키는 프록시가 남지 않는다.
 	void RemoveAllPrimitives();
-	void AddLight(class UPointLightComponent* Component);
-	void RemoveLight(class UPointLightComponent* Component);
+	void AddPointLight(class UPointLightComponent* Component);
+	void RemovePointLight(class UPointLightComponent* Component);
 	void AddDirectionalLight(class UDirectionalLightComponent* Component);
 	void RemoveDirectionalLight(class UDirectionalLightComponent* Component);
+	void AddSpotLight(class USpotLightComponent* Component);
+	void RemoveSpotLight(class USpotLightComponent* Component);
 	void RemoveAllLights();
-	const TArray<class FLightSceneProxy*>& GetLights() const { return Lights; }
+	const TArray<class FPointLightSceneProxy*>& GetPointLights() const { return PointLights; }
 	const TArray<class FDirectionalLightSceneProxy*>& GetDirectionalLights() const { return DirectionalLights; }
+	const TArray<class FSpotLightSceneProxy*>& GetSpotLights() const { return SpotLights; }
 
 	void UpdateAllTransforms();
 
@@ -31,8 +34,9 @@ public:
 
 
 	TArray<FPrimitiveSceneProxy*> Proxies;
-	TArray<class FLightSceneProxy*> Lights;
+	TArray<class FPointLightSceneProxy*> PointLights;
 	TArray<class FDirectionalLightSceneProxy*> DirectionalLights;
+	TArray<class FSpotLightSceneProxy*> SpotLights;
 	TArray<FPrimitiveSceneProxy*> DirtyProxies;
 	TArray<FPrimitiveSceneProxy*> RenderStateDirtyProxies;
 	TArray<FAABB> PrimitiveBounds;

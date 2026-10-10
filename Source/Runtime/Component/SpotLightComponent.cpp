@@ -1,5 +1,6 @@
 #include "EnginePCH.h"
 #include "Component/SpotLightComponent.h"
+#include "Engine/World.h"
 
 #include "Render/LineBatcher.h"
 
@@ -71,6 +72,16 @@ namespace
 	}
 }
 
+void USpotLightComponent::CreateRenderState()
+{
+	GetWorld()->GetScene().AddSpotLight(this);
+}
+
+void USpotLightComponent::DestroyRenderState()
+{
+	GetWorld()->GetScene().RemoveSpotLight(this);
+}
+
 void USpotLightComponent::DrawDebug(FLineBatcher* LineBatcher) const
 {
 	if (LineBatcher == nullptr)
@@ -94,8 +105,9 @@ void USpotLightComponent::DrawDebug(FLineBatcher* LineBatcher) const
 	const float SafeRadius = (AttenuationRadius > 0.0f) ? AttenuationRadius : 0.0f;
 
 	// 바깥 원뿔은 라이트 색 그대로, 안쪽은 구분되도록 흐리게
-	AddWireCone(LineBatcher, Apex, Forward, Right, Up, SafeOuterAngle, SafeRadius, LightColor);
+	AddWireCone(LineBatcher, Apex, Forward, Right, Up, SafeOuterAngle, SafeRadius, GetLightColor());
 
+	const FVector4& LightColor = GetLightColor();
 	FVector4 InnerColor(LightColor.X * 0.5f, LightColor.Y * 0.5f, LightColor.Z * 0.5f, LightColor.W);
 
 	AddWireCone(LineBatcher, Apex, Forward, Right, Up, SafeInnerAngle, SafeRadius, InnerColor);

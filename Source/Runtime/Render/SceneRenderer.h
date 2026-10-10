@@ -23,7 +23,7 @@ public:
 	// 가시성 검사 및 렌더 큐 수집
 	void InitViews(FRenderer* Renderer, const FAmbientLightRenderData& AmbientLight);
 
-	// Also used by Benchmark, which owns one persistent view result.
+	// 뷰 결과를 하나 유지하는 벤치마크에서도 사용한다.
 	static void GatherRenderPackets(FScene& Scene, FSceneRenderData& Data, const FViewContext& View,
 		const FFrustumPlanes* Frustum = nullptr, FRenderer* Renderer = nullptr);
 	static void PrepareDrawData(FRenderer* Renderer, const FSceneRenderData& Data);
@@ -44,6 +44,8 @@ public:
 
 	// 뷰 정보 조회
 	const FSceneView& GetView() const { return View; }
+	
+	bool IntersectSphereFrustum(const FVector4& PositionRadius, const FPlane(&Planes)[6]);
 
 private:
 	UWorld* World = nullptr;

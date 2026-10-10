@@ -52,3 +52,15 @@ public:
 private:
 
 };
+
+class FStructuredBuffer : public FBuffer
+{
+public:
+	FStructuredBuffer(ID3D11Device* Device, const D3D11_BUFFER_DESC& Desc, uint32 InCapacity);
+	ID3D11ShaderResourceView* GetSRV() const { return SRV.Get(); }
+	uint32 GetCapacity() const { return Capacity; }
+
+private:
+	uint32 Capacity = 0;
+	ComPtr<ID3D11ShaderResourceView> SRV;
+};

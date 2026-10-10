@@ -14,6 +14,8 @@ public:
 	USpotLightComponent* GetSpotLightComponent() const { return SpotLightComponent; }
 	USceneComponent* GetLightComponent() const override { return SpotLightComponent; }
 
+	void Tick(float DeltaTime) override;
+
 private:
 	USpotLightComponent* SpotLightComponent = nullptr;
 };

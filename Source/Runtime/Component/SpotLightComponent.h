@@ -1,25 +1,28 @@
 #pragma once
 
-#include "SceneComponent.h"
+#include "Component/LightComponent.h"
 
 class FLineBatcher;
 
-class USpotLightComponent : public USceneComponent
+class USpotLightComponent : public ULightComponent
 {
-	DECLARE_CLASS(USpotLightComponent, USceneComponent)
+	DECLARE_CLASS(USpotLightComponent, ULightComponent)
 
 	REFLECT_START(ClassName)
 		PROPERTY(InnerConeAngle)
 		PROPERTY(OuterConeAngle)
 		PROPERTY(AttenuationRadius)
 		PROPERTY(Falloff)
-		PROPERTY(Intensity)
-		PROPERTY_TYPE(LightColor, Color)
+		PROPERTY(bEnabled)
 	REFLECT_END()
 
 public:
-	USpotLightComponent() = default;
-	virtual ~USpotLightComponent() override = default;
+	USpotLightComponent()
+	{
+		SetIntensity(1.0f);
+		SetLightColor(FVector4(1.0f, 1.0f, 0.6f, 1.0f));
+	}
+	virtual ~USpotLightComponent() override { UnregisterComponent(); }
 
 	void DrawDebug(FLineBatcher* LineBatcher) const;
 
@@ -35,8 +38,13 @@ public:
 	float GetAttenuationRadius() const { return AttenuationRadius; }
 	void SetAttenuationRadius(float InRadius) { AttenuationRadius = InRadius; }
 
-	const FVector4& GetLightColor() const { return LightColor; }
-	void SetLightColor(const FVector4& InColor) { LightColor = InColor; }
+	bool IsEnabled() const { return bEnabled; }
+	void SetEnabled(bool bInEnabled) { bEnabled = bInEnabled; OnPropertyChanged("bEnabled"); }
+
+protected:
+	bool ShouldCreateRenderState() const override { return true; }
+	void CreateRenderState() override;
+	void DestroyRenderState() override;
 
 private:
 	// 원뿔 중심축 기준 반각(도). 
@@ -49,7 +57,5 @@ private:
 	// Inner에서 Outer로 가며 밝기가 떨어지는 정도.
 	float Falloff = 1.0f;
 
-	float Intensity = 1.0f;
-
-	FVector4 LightColor = FVector4(1.0f, 1.0f, 0.6f, 1.0f);
+	bool bEnabled = true;
 };

@@ -3,6 +3,7 @@
 #include "RenderDevice.h"
 
 class FBuffer;
+class FStructuredBuffer;
 class UStaticMesh;
 class UTexture2D;
 class FShaderProgram;
@@ -35,6 +36,7 @@ public:
 	static TUniquePtr<FIndexBuffer> CreateDynamicIndexBuffer(uint32 MaxIndexCount);
 
 	static TUniquePtr<FConstantBuffer> CreateConstantBuffer(uint32 BufferSize);
+	static TUniquePtr<FStructuredBuffer> CreateDynamicStructuredBuffer(uint32 Capacity, uint32 Stride);
 
 	static TUniquePtr<FTexture2D> CreateTexture2D(const D3D11_TEXTURE2D_DESC& Desc, const void* InitialData = nullptr);
 	static TUniquePtr<FTexture2D> CreateTexture2D(const D3D11_TEXTURE2D_DESC& Desc, const FImageData& Image);
@@ -62,7 +64,7 @@ public:
 
 	static void BindVertexBuffer(FVertexBuffer* VertexBuffer);
 	static void BindIndexBuffer(FIndexBuffer* IndexBuffer);
-	// A null buffer explicitly unbinds the slot.
+	// null 버퍼를 전달하면 해당 슬롯의 바인딩을 해제한다.
 	static void BindConstantBuffer(uint32 Slot, FConstantBuffer* ConstantBuffer, EShaderBindFlagBits FlagBits);
 
 	// 상수 버퍼의 일부 구간만 바인딩한다. FirstConstant·NumConstants는 16바이트 단위이며 16의 배수여야 한다.
@@ -74,6 +76,7 @@ public:
 	static void Unmap(FBuffer* InBuffer);
 	static void BindShaderResource(uint32 Slot, FTexture2D* Texture2D, EShaderBindFlagBits FlagBits);
 	static void BindShaderResource(uint32 Slot, UTexture2D* Texture2D, EShaderBindFlagBits FlagBits);
+	static void BindShaderResource(uint32 Slot, FStructuredBuffer* StructuredBuffer, EShaderBindFlagBits FlagBits);
 	static void UnbindShaderResources(uint32 FirstSlot, uint32 Count, EShaderBindFlagBits FlagBits);
 
 	static void BeginRenderPass(FTexture2D* ColorTarget, FTexture2D* DepthTarget, uint32 Width, uint32 Height);

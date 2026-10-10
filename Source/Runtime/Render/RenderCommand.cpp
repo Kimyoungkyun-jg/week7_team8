@@ -46,6 +46,21 @@ TUniquePtr<FConstantBuffer> RenderCommand::CreateConstantBuffer(uint32 BufferSiz
 	return RenderDevice->CreateConstantBuffer(BufferSize);
 }
 
+TUniquePtr<FStructuredBuffer> RenderCommand::CreateDynamicStructuredBuffer(uint32 Capacity, uint32 Stride)
+{
+	assert(RenderDevice);
+	if (!Capacity || !Stride || Capacity > UINT32_MAX / Stride)
+		return nullptr;
+	D3D11_BUFFER_DESC Desc{};
+	Desc.ByteWidth = Capacity * Stride;
+	Desc.Usage = D3D11_USAGE_DYNAMIC;
+	Desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+	Desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+	Desc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+	Desc.StructureByteStride = Stride;
+	return std::make_unique<FStructuredBuffer>(RenderDevice->GetDevice(), Desc, Capacity);
+}
+
 TUniquePtr<FTexture2D> RenderCommand::CreateTexture2D(const D3D11_TEXTURE2D_DESC& Desc, const FImageData& Image)
 {
 	assert(RenderDevice);
@@ -195,6 +210,15 @@ void RenderCommand::BindShaderResource(uint32 Slot, FTexture2D* Texture2D, EShad
 void RenderCommand::BindShaderResource(uint32 Slot, UTexture2D* Texture2D, EShaderBindFlagBits FlagBits)
 {
 	BindShaderResource(Slot, Texture2D ? Texture2D->GetResource() : nullptr, FlagBits);
+}
+
+void RenderCommand::BindShaderResource(uint32 Slot, FStructuredBuffer* StructuredBuffer, EShaderBindFlagBits FlagBits)
+{
+	ID3D11ShaderResourceView* SRV = StructuredBuffer ? StructuredBuffer->GetSRV() : nullptr;
+	if (HasFlag(FlagBits, EShaderBindFlagBits::Vertex))
+		RenderDevice->GetContext()->VSSetShaderResources(Slot, 1, &SRV);
+	if (HasFlag(FlagBits, EShaderBindFlagBits::Pixel))
+		RenderDevice->GetContext()->PSSetShaderResources(Slot, 1, &SRV);
 }
 
 

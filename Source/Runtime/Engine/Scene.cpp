@@ -3,27 +3,47 @@
 #include "Engine/LightSceneProxy.h"
 #include "Component/PointLightComponent.h"
 #include "Component/DirectionalLightComponent.h"
+#include "Component/SpotLightComponent.h"
 
 FScene::~FScene()
 {
 	RemoveAllLights();
 }
 
-void FScene::AddLight(UPointLightComponent* Component)
+void FScene::AddPointLight(UPointLightComponent* Component)
 {
 	if (!Component) return;
-	for (FLightSceneProxy* Proxy : Lights)
+	for (FPointLightSceneProxy* Proxy : PointLights)
 		if (Proxy->GetComponent() == Component) return;
-	Lights.Add(new FLightSceneProxy(Component));
+	PointLights.Add(new FPointLightSceneProxy(Component));
 }
 
-void FScene::RemoveLight(UPointLightComponent* Component)
+void FScene::RemovePointLight(UPointLightComponent* Component)
 {
-	for (uint32 Index = 0; Index < Lights.Num(); ++Index)
+	for (uint32 Index = 0; Index < PointLights.Num(); ++Index)
 	{
-		if (Lights[Index]->GetComponent() != Component) continue;
-		delete Lights[Index];
-		Lights.RemoveAtSwap(Index);
+		if (PointLights[Index]->GetComponent() != Component) continue;
+		delete PointLights[Index];
+		PointLights.RemoveAtSwap(Index);
+		return;
+	}
+}
+
+void FScene::AddSpotLight(USpotLightComponent* Component)
+{
+	if (!Component) return;
+	for (FSpotLightSceneProxy* Proxy : SpotLights)
+		if (Proxy->GetComponent() == Component) return;
+	SpotLights.Add(new FSpotLightSceneProxy(Component));
+}
+
+void FScene::RemoveSpotLight(USpotLightComponent* Component)
+{
+	for (uint32 Index = 0; Index < SpotLights.Num(); ++Index)
+	{
+		if (SpotLights[Index]->GetComponent() != Component) continue;
+		delete SpotLights[Index];
+		SpotLights.RemoveAtSwap(Index);
 		return;
 	}
 }
@@ -49,12 +69,15 @@ void FScene::RemoveDirectionalLight(UDirectionalLightComponent* Component)
 
 void FScene::RemoveAllLights()
 {
-	for (FLightSceneProxy* Proxy : Lights)
+	for (FPointLightSceneProxy* Proxy : PointLights)
 		delete Proxy;
-	Lights.Reset();
+	PointLights.Reset();
 	for (FDirectionalLightSceneProxy* Proxy : DirectionalLights)
 		delete Proxy;
 	DirectionalLights.Reset();
+	for (FSpotLightSceneProxy* Proxy : SpotLights)
+		delete Proxy;
+	SpotLights.Reset();
 }
 
 void FScene::AddPrimitive(UPrimitiveComponent* Component)
@@ -129,9 +152,11 @@ void FScene::RemoveAllPrimitives()
 
 void FScene::UpdateAllTransforms()
 {
-	for (FLightSceneProxy* Proxy : Lights)
+	for (FPointLightSceneProxy* Proxy : PointLights)
 		Proxy->Update();
 	for (FDirectionalLightSceneProxy* Proxy : DirectionalLights)
+		Proxy->Update();
+	for (FSpotLightSceneProxy* Proxy : SpotLights)
 		Proxy->Update();
 
 	for (FPrimitiveSceneProxy* Proxy : RenderStateDirtyProxies)

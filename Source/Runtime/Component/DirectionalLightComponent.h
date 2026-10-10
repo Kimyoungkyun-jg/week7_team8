@@ -18,6 +18,8 @@ public:
 	~UDirectionalLightComponent() override { UnregisterComponent(); }
 	bool IsEnabled() const { return bEnabled; }
 	void SetEnabled(bool bInEnabled) { bEnabled = bInEnabled; OnPropertyChanged("bEnabled"); }
+	FVector GetDirection() const;
+	void SetDirection(const FVector& InDirection);
 
 protected:
 	bool ShouldCreateRenderState() const override { return true; }

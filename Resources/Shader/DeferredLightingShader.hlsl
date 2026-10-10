@@ -4,30 +4,26 @@ Texture2D<float4> BaseColorMetallic : register(t0);
 Texture2D<float4> NormalRoughness : register(t1);
 Texture2D<float> SceneDepth : register(t2);
 
-struct FPointLightData
+struct FSceneLightRenderInfo
 {
-    float4 PositionRadius;
-    float4 ColorIntensity;
-    float RadiusFallOff;
-};
-
-struct FDirectionalLightData
-{
-    float4 DirectionIntensity;
-    float4 Color;
+    float4 PositionRadius;    // 방향광에서는 xyz가 빛의 진행 방향
+    float4 DirectionOuterCos; // 스포트: xyz 진행 방향, w 바깥 각도의 코사인
+    float4 ColorIntensity;    // rgb: 색상, w: 광도
+    float4 Parameters;        // 포인트: x 거리 감쇠, 스포트: x 안쪽 각도의 코사인, y 거리 감쇠
 };
 
 cbuffer DeferredLightConstants : register(b0)
 {
     matrix InverseViewProjection;
-    float4 CameraPosition; // W: perspective projection
+    float4 CameraPosition; // W: 원근 투영 여부
     float4 CameraForward;
-    float4 ViewportLightCount;
+    float4 ViewportPass; // xy: 뷰포트 크기, w: 로컬 라이트 가산 패스 여부
     float4 AmbientColorIntensity;
-    uint4 DirectionalCounts;
-    FDirectionalLightData DirectionalLights[32];
-    FPointLightData PointLights[32];
+    uint4 LightCounts; // x: 포인트 개수, y: 스포트 개수, z: 방향광 개수
+    uint4 LightOffsets; // SceneLights에서 각 종류가 시작되는 위치, 순서는 위와 같음
 };
+
+StructuredBuffer<FSceneLightRenderInfo> SceneLights : register(t3);
 
 struct FPSInput
 {
@@ -56,40 +52,40 @@ float4 mainPS(FPSInput Input) : SV_Target
     float Roughness = NormalData.a;
     float3 N = NormalData.xyz * rsqrt(max(dot(NormalData.xyz, NormalData.xyz), 1.0e-8f));
     
-    // 첫 드로우는 기본 조명을 HDR에 쓰고, 두 번째 드로우는 포인트 라이트만 더한다.
-    if (ViewportLightCount.w < 0.5f)
+    // 첫 드로우는 기본 조명을 HDR에 쓰고, 두 번째 드로우는 로컬 라이트를 더한다.
+    if (ViewportPass.w < 0.5f)
     {
         float3 AmbientColor = AmbientColorIntensity.rgb * max(AmbientColorIntensity.a, 0.0f);
         float3 Lighting = AmbientColor;
         [loop]
-        for (uint Index = 0; Index < min(DirectionalCounts.x, 32u); ++Index)
+        for (uint DirectionalIndex = 0; DirectionalIndex < LightCounts.z; ++DirectionalIndex)
         {
-            FDirectionalLightData Light = DirectionalLights[Index];
-            if (Light.DirectionIntensity.w <= 0.0f) continue;
-            float3 LightDir = normalize(Light.DirectionIntensity.xyz);
-            float3 LightColor = Light.Color.rgb * Light.DirectionIntensity.w;
+            FSceneLightRenderInfo Light = SceneLights[LightOffsets.z + DirectionalIndex];
+            if (Light.ColorIntensity.w <= 0.0f) continue;
+            float3 LightDir = normalize(Light.PositionRadius.xyz);
+            float3 LightColor = Light.ColorIntensity.rgb * Light.ColorIntensity.w;
             Lighting += LightColor * saturate(dot(N, -LightDir));
         }
         return float4(Albedo * Lighting, 1.0f);
     }
     
-    float2 UV = (float2(Pixel) + 0.5f) / ViewportLightCount.xy;
+    float2 UV = (float2(Pixel) + 0.5f) / ViewportPass.xy;
     float2 NDC = float2(UV.x * 2.0f - 1.0f, 1.0f - UV.y * 2.0f);
     float4 WorldH = mul(float4(NDC, Depth, 1.0f), InverseViewProjection);
     if (!isfinite(WorldH.w) || abs(WorldH.w) < 1.0e-6f)
         return 0.0f;
     float3 WorldPosition = WorldH.xyz / WorldH.w;
-    // Orthographic rays are parallel; their viewing direction does not depend on position.
+    // 직교 투영의 시선 광선은 평행하므로 시선 방향이 위치에 따라 달라지지 않는다.
     float3 ToCamera = CameraPosition.w > 0.5f
         ? CameraPosition.xyz - WorldPosition : -CameraForward.xyz;
     float3 V = ToCamera * rsqrt(max(dot(ToCamera, ToCamera), 1.0e-8f));
 
-    float3 PointLighting = 0.0f;
+    float3 LocalLighting = 0.0f;
 
     [loop]
-    for (uint Index = 0; Index < (uint) ViewportLightCount.z; ++Index)
+    for (uint PointIndex = 0; PointIndex < LightCounts.x; ++PointIndex)
     {
-        FPointLightData Light = PointLights[Index];
+        FSceneLightRenderInfo Light = SceneLights[LightOffsets.x + PointIndex];
         float3 ToLight = Light.PositionRadius.xyz - WorldPosition;
         float DistanceSquared = dot(ToLight, ToLight);
         float RadiusSquared = Light.PositionRadius.w * Light.PositionRadius.w;
@@ -101,20 +97,41 @@ float4 mainPS(FPSInput Input) : SV_Target
         float3 L = ToLight / Distance;
         
         float x = Distance / Light.PositionRadius.w;
-        float Attenuation = pow(saturate(1.0 - x), max(Light.RadiusFallOff, 0.0f));
+        float Attenuation = pow(saturate(1.0 - x), max(Light.Parameters.x, 0.0f));
         
-        PointLighting += Light.ColorIntensity.xyz * (Attenuation * Light.ColorIntensity.w);
+        LocalLighting += Light.ColorIntensity.xyz * (Attenuation * Light.ColorIntensity.w);
 
+    }
+
+    [loop]
+    for (uint SpotIndex = 0; SpotIndex < LightCounts.y; ++SpotIndex)
+    {
+        FSceneLightRenderInfo Light = SceneLights[LightOffsets.y + SpotIndex];
+        float3 ToLight = Light.PositionRadius.xyz - WorldPosition;
+        float DistanceSquared = dot(ToLight, ToLight);
+        float RadiusSquared = Light.PositionRadius.w * Light.PositionRadius.w;
+        if (RadiusSquared <= 0.0f || DistanceSquared >= RadiusSquared || DistanceSquared < 1.0e-8f)
+            continue;
+
+        float Distance = sqrt(max(DistanceSquared, 1.0e-6f));
+        float3 L = ToLight / Distance;
+        float ConeCos = dot(-L, normalize(Light.DirectionOuterCos.xyz));
+        float ConeFade = smoothstep(Light.DirectionOuterCos.w, Light.Parameters.x, ConeCos);
+        float RadiusFade = pow(saturate(1.0f - Distance / Light.PositionRadius.w),
+            max(Light.Parameters.y, 0.0f));
+        float NdotL = saturate(dot(N, L));
+        LocalLighting += Light.ColorIntensity.rgb * max(Light.ColorIntensity.w, 0.0f)
+            * ConeFade * RadiusFade * NdotL;
     }
     
     
-    return float4(PointLighting, 0.0f);
+    return float4(LocalLighting, 0.0f);
     
 }
 
 
 
-// GGX microfacet specular + energy-conserving Lambert diffuse.
+// GGX 미세면 정반사와 에너지를 보존하는 Lambert 확산광.
 //float3 EvaluateSurfaceBRDF(float3 Albedo, float Metallic, float Roughness,
 //    float3 N, float3 V, float3 L)
 //{
@@ -179,7 +196,7 @@ float4 mainPS(FPSInput Input) : SV_Target
 //    if (!isfinite(WorldH.w) || abs(WorldH.w) < 1.0e-6f)
 //        return 0.0f;
 //    float3 WorldPosition = WorldH.xyz / WorldH.w;
-//    // Orthographic rays are parallel; their viewing direction does not depend on position.
+//    // 직교 투영의 시선 광선은 평행하므로 시선 방향이 위치에 따라 달라지지 않는다.
 //    float3 ToCamera = CameraPosition.w > 0.5f
 //        ? CameraPosition.xyz - WorldPosition : -CameraForward.xyz;
 //    float3 V = ToCamera * rsqrt(max(dot(ToCamera, ToCamera), 1.0e-8f));

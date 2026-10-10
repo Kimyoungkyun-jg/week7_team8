@@ -2,6 +2,8 @@
 
 #include "Component/LightComponent.h"
 
+class FLineBatcher;
+
 class UPointLightComponent : public ULightComponent
 {
 	DECLARE_CLASS(UPointLightComponent, ULightComponent)
@@ -13,6 +15,7 @@ class UPointLightComponent : public ULightComponent
 
 public:
 	~UPointLightComponent() override { UnregisterComponent(); }
+	void DrawDebug(FLineBatcher* LineBatcher) const;
 	float GetAttenuationRadius() const { return AttenuationRadius; }
 	void SetAttenuationRadius(float InRadius) { AttenuationRadius = InRadius; OnPropertyChanged("AttenuationRadius"); }
 	float GetRadiusFallOff() const { return RadiusFallOff; }

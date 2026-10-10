@@ -58,7 +58,8 @@ namespace
 
 	}
 
-	bool DrawVector3Controller(const FString& _label, float* _values, float _resetValue, float _columnWidth)
+	bool DrawVector3Controller(const FString& _label, float* _values, float _resetValue,
+		float _columnWidth, float _speed = 0.1f, const float* _axisResetValues = nullptr)
 	{
 		ImGuiIO& io = ImGui::GetIO();
 		auto boldFont = io.Fonts->Fonts[0];
@@ -85,17 +86,20 @@ namespace
 			ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 2,0 });
 			ImGui::PushFont(boldFont);
 
-			isVectorChanged |= DrawAxisControl("X", _values[0], 0.1f, 0.0f, 0.0f, _resetValue, { 0.8f, 0.1f, 0.1f, 1.0f });
+			isVectorChanged |= DrawAxisControl("X", _values[0], _speed, 0.0f, 0.0f,
+				_axisResetValues ? _axisResetValues[0] : _resetValue, { 0.8f, 0.1f, 0.1f, 1.0f });
 
 			ImGui::PopItemWidth();
 
 			ImGui::SameLine();
-			isVectorChanged |= DrawAxisControl("Y", _values[1], 0.1f, 0.0f, 0.0f, _resetValue, { 0.1f, 0.8f, 0.1f, 1.0f });
+			isVectorChanged |= DrawAxisControl("Y", _values[1], _speed, 0.0f, 0.0f,
+				_axisResetValues ? _axisResetValues[1] : _resetValue, { 0.1f, 0.8f, 0.1f, 1.0f });
 
 			ImGui::PopItemWidth();
 
 			ImGui::SameLine();
-			isVectorChanged |= DrawAxisControl("Z", _values[2], 0.1f, 0.0f, 0.0f, _resetValue, { 0.1f, 0.1f, 0.8f, 1.0f });
+			isVectorChanged |= DrawAxisControl("Z", _values[2], _speed, 0.0f, 0.0f,
+				_axisResetValues ? _axisResetValues[2] : _resetValue, { 0.1f, 0.1f, 0.8f, 1.0f });
 
 			ImGui::PopItemWidth();
 
@@ -767,7 +771,7 @@ namespace
 		{
 			UObject** Value = static_cast<UObject**>(ValuePtr);
 			UObject* Before = *Value;
-			// These selectors use component setters; those setters send the notification.
+			// 선택 항목은 컴포넌트의 설정 함수를 사용하며, 변경 알림은 그 함수에서 보낸다.
 			if (Property.Class == UMaterial::StaticClass())
 			{
 				bChanged = DrawTextureSlot(reinterpret_cast<UMaterial**>(Value), 0);
@@ -820,6 +824,15 @@ namespace
 				for (const FProperty& Property : Class->GetProperties())
 				{
 					DrawProperty(Object, Property, CustomFont);
+				}
+				if (Class == UDirectionalLightComponent::StaticClass())
+				{
+					UDirectionalLightComponent* Light = Cast<UDirectionalLightComponent>(Object);
+					FVector Direction = Light->GetDirection();
+					const float AxisResetValues[3] = { 1.0f, 0.0f, 0.0f };
+					if (DrawVector3Controller("Direction", Direction.V, 0.0f, 55.0f,
+						0.01f, AxisResetValues))
+						Light->SetDirection(Direction);
 				}
 			}
 			ImGui::PopID();
@@ -908,7 +921,7 @@ void FDetailsPanel::OnRender()
 			{
 				DrawComponentTree(Root);
 			}
-			// ActorComponents have no attachment tree, so list them separately.
+			// 액터 컴포넌트에는 부착 트리가 없으므로 별도로 나열한다.
 			for (UActorComponent* Component : Owner->GetComponents())
 			{
 				if (!Component || Cast<USceneComponent>(Component))

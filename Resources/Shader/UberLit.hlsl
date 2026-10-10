@@ -1,11 +1,7 @@
 #pragma pack_matrix(row_major)
 
-#define NUM_DIRECTIONAL_LIGHT 32
-#define NUM_POINT_LIGHT 4
-#define NUM_SPOT_LIGHT 4
-
-// The shader scanner compiles this file without defines. Use Lambert for that
-// default variant; explicit variants set exactly one model to 1 at compile time.
+// 셰이더 스캐너는 매크로 정의 없이 이 파일을 컴파일하므로 기본 변형에는 Lambert를 쓴다.
+// 명시적인 변형은 컴파일할 때 조명 모델 하나만 1로 설정한다.
 #if !defined(LIGHTING_MODEL_GOURAUD) && !defined(LIGHTING_MODEL_LAMBERT) && !defined(LIGHTING_MODEL_PHONG)
     #define LIGHTING_MODEL_LAMBERT 1
 #endif
@@ -16,28 +12,15 @@
 
 struct FAmbientLightInfo
 {
-    float4 ColorIntensity; // rgb: linear color, a: intensity
+    float4 ColorIntensity; // rgb: 선형 색상, a: 광도
 };
 
-struct FDirectionalLightInfo
+struct FSceneLightRenderInfo
 {
-    float4 DirectionIntensity; // xyz: direction the light travels, w: intensity
-    float4 Color;
-};
-
-struct FPointLightInfo
-{
-    float4 PositionRadius; // xyz: world position, w: radius
-    float4 ColorIntensity;
-    float4 Falloff; // x: radius falloff exponent
-};
-
-struct FSpotLightInfo
-{
-    float4 PositionRadius;
-    float4 DirectionOuterCos; // xyz: direction the light travels, w: cos(outer angle)
-    float4 ColorIntensity;
-    float4 InnerCosFalloff; // x: cos(inner angle), y: radius falloff exponent
+    float4 PositionRadius;    // 방향광에서는 xyz가 빛의 진행 방향
+    float4 DirectionOuterCos; // 스포트: xyz 진행 방향, w 바깥 각도의 코사인
+    float4 ColorIntensity;    // rgb: 색상, w: 광도
+    float4 Parameters;        // 포인트: x 거리 감쇠, 스포트: x 안쪽 각도의 코사인, y 거리 감쇠
 };
 
 cbuffer PerObject : register(b0)
@@ -45,25 +28,25 @@ cbuffer PerObject : register(b0)
     matrix World;
     matrix View;
     matrix Projection;
-    matrix NormalMatrix; // inverse transpose of World
+    matrix NormalMatrix; // World 행렬의 역행렬을 전치한 법선 변환 행렬
 };
 
 cbuffer Lighting : register(b1)
 {
     FAmbientLightInfo Ambient;
-    FDirectionalLightInfo DirectionalLights[NUM_DIRECTIONAL_LIGHT];
-    FPointLightInfo PointLights[NUM_POINT_LIGHT];
-    FSpotLightInfo SpotLights[NUM_SPOT_LIGHT];
     float4 CameraPosition;
-    uint4 LightCounts; // x: point count, y: spot count, z: directional count
+    uint4 LightCounts; // x: 포인트 개수, y: 스포트 개수, z: 방향광 개수
+    uint4 LightOffsets; // SceneLights에서 각 종류가 시작되는 위치, 순서는 위와 같음
 };
+
+StructuredBuffer<FSceneLightRenderInfo> SceneLights : register(t8);
 
 cbuffer MaterialParams : register(b2)
 {
     float4 BaseColor;
     float4 Emissive;
-    float4 SurfaceParams; // x: specular strength, y: shininess
-    float4 UVTransform; // xy: offset, zw: scale
+    float4 SurfaceParams; // x: 정반사 세기, y: 광택 지수
+    float4 UVTransform; // xy: 이동량, zw: 배율
 };
 
 Texture2D ColorTexture : register(t0);
@@ -106,8 +89,9 @@ float3 CalculateSpecular(float3 N, float3 V, float3 L, float3 Radiance)
 {
     float Strength = max(SurfaceParams.x, 0.0f);
     float Shininess = max(SurfaceParams.y, 1.0f);
-    float3 Reflected = reflect(-L, N);
-    return Radiance * Strength * pow(saturate(dot(Reflected, V)), Shininess);
+    float3 HalfVector = L + V;
+    HalfVector *= rsqrt(max(dot(HalfVector, HalfVector), 1.0e-8f));
+    return Radiance * Strength * pow(saturate(dot(N, HalfVector)), Shininess);
 }
 
 void AddLight(inout FLightResult Result, float3 N, float3 V, float3 L,
@@ -119,17 +103,17 @@ void AddLight(inout FLightResult Result, float3 N, float3 V, float3 L,
         Result.Specular += CalculateSpecular(N, V, L, Radiance);
 }
 
-void CalculateDirectionalLight(inout FLightResult Result, FDirectionalLightInfo Info, float3 N, float3 V,
+void CalculateDirectionalLight(inout FLightResult Result, FSceneLightRenderInfo Info, float3 N, float3 V,
     bool bIncludeSpecular)
 {
-    if (Info.DirectionIntensity.w <= 0.0f)
+    if (Info.ColorIntensity.w <= 0.0f)
         return;
-    float3 L = normalize(-Info.DirectionIntensity.xyz);
-    float3 Radiance = Info.Color.rgb * Info.DirectionIntensity.w;
+    float3 L = normalize(-Info.PositionRadius.xyz);
+    float3 Radiance = Info.ColorIntensity.rgb * Info.ColorIntensity.w;
     AddLight(Result, N, V, L, Radiance, bIncludeSpecular);
 }
 
-void CalculatePointLight(inout FLightResult Result, FPointLightInfo Info,
+void CalculatePointLight(inout FLightResult Result, FSceneLightRenderInfo Info,
     float3 P, float3 N, float3 V, bool bIncludeSpecular)
 {
     float3 ToLight = Info.PositionRadius.xyz - P;
@@ -139,27 +123,30 @@ void CalculatePointLight(inout FLightResult Result, FPointLightInfo Info,
         return;
 
     float3 L = ToLight / Distance;
-    float Fade = pow(saturate(1.0f - Distance / Radius), max(Info.Falloff.x, 0.0f));
+    float Fade = pow(saturate(1.0f - Distance / Radius), max(Info.Parameters.x, 0.0f));
     float3 Radiance = Info.ColorIntensity.rgb * max(Info.ColorIntensity.a, 0.0f) * Fade;
     AddLight(Result, N, V, L, Radiance, bIncludeSpecular);
 }
 
-void CalculateSpotLight(inout FLightResult Result, FSpotLightInfo Info,
+void CalculateSpotLight(inout FLightResult Result, FSceneLightRenderInfo Info,
     float3 P, float3 N, float3 V, bool bIncludeSpecular)
 {
     float3 ToLight = Info.PositionRadius.xyz - P;
     float Distance = length(ToLight);
     float Radius = Info.PositionRadius.w;
+
     if (Radius <= 0.0f || Distance >= Radius || Distance < 1.0e-5f)
         return;
 
     float3 L = ToLight / Distance;
     float ConeCos = dot(-L, normalize(Info.DirectionOuterCos.xyz));
-    float ConeFade = smoothstep(Info.DirectionOuterCos.w, Info.InnerCosFalloff.x, ConeCos);
+    float ConeFade = smoothstep(Info.DirectionOuterCos.w, Info.Parameters.x, ConeCos);
     float RadiusFade = pow(saturate(1.0f - Distance / Radius),
-        max(Info.InnerCosFalloff.y, 0.0f));
+        max(Info.Parameters.y, 0.0f));
+
     float3 Radiance = Info.ColorIntensity.rgb * max(Info.ColorIntensity.a, 0.0f)
         * ConeFade * RadiusFade;
+
     AddLight(Result, N, V, L, Radiance, bIncludeSpecular);
 }
 
@@ -172,14 +159,14 @@ FLightResult CalculateLighting(float3 P, float3 Normal, bool bIncludeSpecular)
     Result.Specular = 0.0f;
 
     [loop]
-    for (uint DirectionalIndex = 0; DirectionalIndex < min(LightCounts.z, NUM_DIRECTIONAL_LIGHT); ++DirectionalIndex)
-        CalculateDirectionalLight(Result, DirectionalLights[DirectionalIndex], N, V, bIncludeSpecular);
+    for (uint DirectionalIndex = 0; DirectionalIndex < LightCounts.z; ++DirectionalIndex)
+        CalculateDirectionalLight(Result, SceneLights[LightOffsets.z + DirectionalIndex], N, V, bIncludeSpecular);
     [loop]
-    for (uint PointIndex = 0; PointIndex < min(LightCounts.x, NUM_POINT_LIGHT); ++PointIndex)
-        CalculatePointLight(Result, PointLights[PointIndex], P, N, V, bIncludeSpecular);
+    for (uint PointIndex = 0; PointIndex < LightCounts.x; ++PointIndex)
+        CalculatePointLight(Result, SceneLights[LightOffsets.x + PointIndex], P, N, V, bIncludeSpecular);
     [loop]
-    for (uint SpotIndex = 0; SpotIndex < min(LightCounts.y, NUM_SPOT_LIGHT); ++SpotIndex)
-        CalculateSpotLight(Result, SpotLights[SpotIndex], P, N, V, bIncludeSpecular);
+    for (uint SpotIndex = 0; SpotIndex < LightCounts.y; ++SpotIndex)
+        CalculateSpotLight(Result, SceneLights[LightOffsets.y + SpotIndex], P, N, V, bIncludeSpecular);
     return Result;
 }
 
@@ -226,6 +213,6 @@ float4 Uber_PS(VS_OUT Input) : SV_TARGET
         TextureColor.a * BaseColor.a * Input.Color.a);
 }
 
-// The current resource manager looks for mainVS/mainPS when it scans .hlsl files.
+// 현재 리소스 매니저는 .hlsl 파일을 스캔할 때 mainVS/mainPS 진입점을 찾는다.
 VS_OUT mainVS(VS_IN Input) { return Uber_VS(Input); }
 float4 mainPS(VS_OUT Input) : SV_TARGET { return Uber_PS(Input); }

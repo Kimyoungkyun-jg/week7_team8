@@ -7,6 +7,7 @@
 #include "SceneView.h"
 #include "Occlusion/GPUOcclusion.h"
 #include "Engine/LightSceneProxy.h"
+#include "Render/Buffer.h"
 
 // 오클루전 컬링의 효과 상한을 재기 위한 측정 결과 (디버그 전용)
 struct FOcclusionMeasureResult
@@ -30,20 +31,21 @@ public:
 	bool Init();
 	void DrawDeferredLighting(const FSceneView& View, const struct FDeferredViewTargets& Targets,
 		const FAmbientLightRenderData& AmbientLight, const TArray<FDirectionalLightRenderData>& DirectionalLights,
-		const TArray<FPointLightRenderData>& PointLights);
+		const TArray<FPointLightRenderData>& PointLights, const TArray<FSpotLightRenderData>& SpotLights);
 	void DrawToneMap(const struct FDeferredViewTargets& Targets);
 
 	// 시점 상수 버퍼 및 렌더링 상태 설정
 	void SetupView(const FSceneView& View);
 
-	// ObjViewer uses this forward path. Editor/PIE use SceneRenderer and GBuffer.
+	// ObjViewer는 이 Forward 경로를 사용한다. 에디터와 PIE는 SceneRenderer와 GBuffer를 사용한다.
 	void RenderAll(const FSceneView& View, const FRenderQueue& InQueue);
 
 	// 불투명 요소 렌더링
 	void RenderDeferredOpaque(const FSceneView& View, const FRenderQueue& InQueue, bool bGBufferPass = false);
 	bool RenderForwardOpaque(const FSceneView& View, const FRenderQueue& InQueue,
 		const FAmbientLightRenderData& AmbientLight, const TArray<FDirectionalLightRenderData>& DirectionalLights,
-		const TArray<FPointLightRenderData>& PointLights, ELightingModel LightingModel);
+		const TArray<FPointLightRenderData>& PointLights,
+		const TArray<FSpotLightRenderData>& SpotLights, ELightingModel LightingModel);
 
 	// 반투명 요소 렌더링
 	void RenderTranslucent(const FSceneView& View, const FRenderQueue& InQueue);
@@ -65,6 +67,7 @@ private:
 	TUniquePtr<FConstantBuffer> PerObjectCB;
 	TUniquePtr<FConstantBuffer> ViewCB;
 	TUniquePtr<FConstantBuffer> DeferredLightCB;
+	TUniquePtr<FStructuredBuffer> SceneLightBuffer;
 	TUniquePtr<FConstantBuffer> ForwardObjectCB;
 	TUniquePtr<FConstantBuffer> ForwardLightCB;
 	TUniquePtr<FConstantBuffer> ForwardMaterialCB;
@@ -91,6 +94,7 @@ private:
 	bool SetupForwardPass(const FSceneView& View, const FAmbientLightRenderData& AmbientLight,
 		const TArray<FDirectionalLightRenderData>& DirectionalLights,
 		const TArray<FPointLightRenderData>& PointLights,
+		const TArray<FSpotLightRenderData>& SpotLights,
 		ELightingModel LightingModel, FPipelineState& OutPSO);
 	void BindForwardMaterial(UMaterial* Material, const FSceneView& View, const FPipelineState& PSO);
 	void DrawForwardObject(const FSceneView& View, const FMatrix& World, uint32 IndexCount, uint32 StartIndex);

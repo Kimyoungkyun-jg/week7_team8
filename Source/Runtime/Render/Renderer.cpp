@@ -18,26 +18,107 @@
 #include <chrono>
 #include <unordered_map>
 #include <bit>
+#include <cstring>
 
 DECLARE_CYCLE_STAT("Draw Render Packets", STAT_DrawRenderPackets);
 
 namespace
 {
+	constexpr uint32 ForwardSceneLightSlot = 8;
+	constexpr uint32 DeferredSceneLightSlot = 3;
+
+	template <typename T>
+	bool UploadLightBuffer(TUniquePtr<FStructuredBuffer>& Buffer, const TArray<T>& Lights)
+	{
+		if (Lights.IsEmpty()) return true;
+		if (static_cast<uint64>(Lights.Num()) > UINT32_MAX / sizeof(T)) return false;
+
+		const uint32 Count = static_cast<uint32>(Lights.Num());
+		if (!Buffer || Buffer->GetCapacity() < Count)
+		{
+			const uint32 PreviousCapacity = Buffer ? Buffer->GetCapacity() : 0;
+			const uint32 MaxCapacity = UINT32_MAX / sizeof(T);
+			const uint32 DoubledCapacity = PreviousCapacity <= MaxCapacity / 2
+				? std::max(1u, PreviousCapacity * 2) : MaxCapacity;
+			auto NewBuffer = RenderCommand::CreateDynamicStructuredBuffer(
+				std::max(Count, DoubledCapacity), sizeof(T));
+			if (!NewBuffer || !NewBuffer->GetBuffer() || !NewBuffer->GetSRV()) return false;
+			Buffer = std::move(NewBuffer);
+		}
+
+		void* Destination = RenderCommand::MapWriteDiscard(Buffer.get());
+		if (!Destination) return false;
+		std::memcpy(Destination, Lights.GetData(), Count * sizeof(T));
+		RenderCommand::Unmap(Buffer.get());
+		return true;
+	}
+
+	bool PackAndUploadSceneLights(TUniquePtr<FStructuredBuffer>& Buffer,
+		const TArray<FDirectionalLightRenderData>& DirectionalLights,
+		const TArray<FPointLightRenderData>& PointLights,
+		const TArray<FSpotLightRenderData>& SpotLights,
+		uint32 (&Counts)[4], uint32 (&Offsets)[4])
+	{
+		const uint64 DirectionalCount = DirectionalLights.Num();
+		const uint64 PointCount = PointLights.Num();
+		const uint64 SpotCount = SpotLights.Num();
+		const uint64 TotalCount = DirectionalCount + PointCount + SpotCount;
+		if (TotalCount > UINT32_MAX / sizeof(FSceneLightRenderInfo)) return false;
+
+		Counts[0] = static_cast<uint32>(PointCount);
+		Counts[1] = static_cast<uint32>(SpotCount);
+		Counts[2] = static_cast<uint32>(DirectionalCount);
+		Offsets[2] = 0;
+		Offsets[0] = Counts[2];
+		Offsets[1] = Counts[2] + Counts[0];
+
+		TArray<FSceneLightRenderInfo> PackedLights;
+		PackedLights.Reserve(static_cast<uint32>(TotalCount));
+		
+		for (const FDirectionalLightRenderData& Light : DirectionalLights)
+		{
+			FSceneLightRenderInfo Info{};
+			Info.PositionRadius = Light.DirectionIntensity;
+			Info.ColorIntensity = FVector4(Light.Color.X, Light.Color.Y,
+				Light.Color.Z, Light.DirectionIntensity.W);
+			PackedLights.Add(Info);
+		}
+		for (const FPointLightRenderData& Light : PointLights)
+		{
+			FSceneLightRenderInfo Info{};
+			Info.PositionRadius = Light.PositionRadius;
+			Info.ColorIntensity = Light.ColorIntensity;
+			Info.Parameters = Light.Falloff;
+			PackedLights.Add(Info);
+		}
+		for (const FSpotLightRenderData& Light : SpotLights)
+		{
+			FSceneLightRenderInfo Info{};
+			Info.PositionRadius = Light.PositionRadius;
+			Info.DirectionOuterCos = Light.DirectionOuterCos;
+			Info.ColorIntensity = Light.ColorIntensity;
+			Info.Parameters = Light.InnerCosFalloff;
+			PackedLights.Add(Info);
+		}
+		return UploadLightBuffer(Buffer, PackedLights);
+	}
+
 	struct FDeferredLightConstants
 	{
 		FMatrix InverseViewProjection;
-		FVector4 CameraPosition; // W: perspective projection
+		FVector4 CameraPosition; // W: 원근 투영 여부
 		FVector4 CameraForward;
-		FVector4 ViewportLightCount;
+		FVector4 ViewportPass;
 		FAmbientLightRenderData Ambient;
-		uint32 DirectionalCounts[4];
-		FDirectionalLightRenderData DirectionalLights[MaxDirectionalLights];
-		FPointLightRenderData PointLights[MaxDeferredPointLights];
+		uint32 LightCounts[4]; // x: 포인트 개수, y: 스포트 개수, z: 방향광 개수
+		uint32 LightOffsets[4];
 	};
 	static_assert(sizeof(FPointLightRenderData) == 48);
-	static_assert(offsetof(FDeferredLightConstants, DirectionalLights) == 144);
-	static_assert(offsetof(FDeferredLightConstants, PointLights) == 1168);
-	static_assert(sizeof(FDeferredLightConstants) % 16 == 0);
+	static_assert(offsetof(FDeferredLightConstants, ViewportPass) == 96);
+	static_assert(offsetof(FDeferredLightConstants, Ambient) == 112);
+	static_assert(offsetof(FDeferredLightConstants, LightCounts) == 128);
+	static_assert(offsetof(FDeferredLightConstants, LightOffsets) == 144);
+	static_assert(sizeof(FDeferredLightConstants) == 160);
 	// VSSetConstantBuffers1의 오프셋은 16개 상수(256바이트) 단위여야 하므로 오브젝트마다 256바이트 칸을 쓴다.
 	constexpr uint32 PerObjectSlotConstants = 16;
 	static_assert(sizeof(FPerObjectConstants) <= ObjectSlotBytes);
@@ -120,14 +201,17 @@ void FRenderer::RenderDeferredOpaque(const FSceneView& View, const FRenderQueue&
 bool FRenderer::RenderForwardOpaque(const FSceneView& View, const FRenderQueue& InQueue,
 	const FAmbientLightRenderData& AmbientLight,
 	const TArray<FDirectionalLightRenderData>& DirectionalLights,
-	const TArray<FPointLightRenderData>& PointLights, ELightingModel LightingModel)
+	const TArray<FPointLightRenderData>& PointLights,
+	const TArray<FSpotLightRenderData>& SpotLights, ELightingModel LightingModel)
 {
 	FPipelineState PSO;
-	if (!SetupForwardPass(View, AmbientLight, DirectionalLights, PointLights, LightingModel, PSO))
+	if (!SetupForwardPass(View, AmbientLight, DirectionalLights, PointLights, SpotLights, LightingModel, PSO))
 		return false;
 
 	DrawForwardStaticGroups(View, PSO);
 	DrawForwardPackets(View, InQueue, PSO);
+	RenderCommand::UnbindShaderResources(ForwardSceneLightSlot, 1,
+		EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
 
 	return true;
 }
@@ -135,7 +219,8 @@ bool FRenderer::RenderForwardOpaque(const FSceneView& View, const FRenderQueue& 
 bool FRenderer::SetupForwardPass(const FSceneView& View,
 	const FAmbientLightRenderData& AmbientLight,
 	const TArray<FDirectionalLightRenderData>& DirectionalLights,
-	const TArray<FPointLightRenderData>& PointLights, ELightingModel LightingModel,
+	const TArray<FPointLightRenderData>& PointLights,
+	const TArray<FSpotLightRenderData>& SpotLights, ELightingModel LightingModel,
 	FPipelineState& OutPSO)
 {
 	FPipelineState* BasePSO = FRenderResourceManager::GetPSO(EPSOType::StaticMesh_Forward);
@@ -147,15 +232,10 @@ bool FRenderer::SetupForwardPass(const FSceneView& View,
 
 	FForwardLightingConstants Lighting{};
 	Lighting.Ambient = AmbientLight;
-	const uint32 DirectionalCount = std::min<uint32>(static_cast<uint32>(DirectionalLights.Num()), MaxDirectionalLights);
-	Lighting.LightCounts[2] = DirectionalCount;
-	for (uint32 Index = 0; Index < DirectionalCount; ++Index)
-		Lighting.DirectionalLights[Index] = DirectionalLights[Index];
 	Lighting.CameraPosition = FVector4(View.ViewLocation.X, View.ViewLocation.Y, View.ViewLocation.Z, 1.0f);
-	const uint32 Count = std::min<uint32>(static_cast<uint32>(PointLights.Num()), MaxForwardPointLights);
-	Lighting.LightCounts[0] = Count;
-	for (uint32 Index = 0; Index < Count; ++Index)
-		Lighting.PointLights[Index] = PointLights[Index];
+	if (!PackAndUploadSceneLights(SceneLightBuffer, DirectionalLights, PointLights,
+		SpotLights, Lighting.LightCounts, Lighting.LightOffsets))
+		return false;
 	RenderCommand::UpdateBufferData(ForwardLightCB.get(), &Lighting, sizeof(Lighting));
 	SetupView(View);
 	return true;
@@ -170,6 +250,9 @@ void FRenderer::BindForwardMaterial(UMaterial* Material, const FSceneView& View,
 		RenderCommand::SetRasterizerState(ERasterizerState::Wireframe);
 	for (size_t Index = 0; Index < Material->Textures.size(); ++Index)
 		RenderCommand::BindShaderResource(static_cast<uint32>(Index), Material->Textures[Index], EShaderBindFlagBits::Pixel);
+	RenderCommand::BindShaderResource(ForwardSceneLightSlot,
+		SceneLightBuffer && SceneLightBuffer->GetSRV() ? SceneLightBuffer.get() : nullptr,
+		EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
 	RenderCommand::BindSamplerState(0, Material->SamplerState, EShaderBindFlagBits::Pixel);
 
 	FForwardMaterialConstants Params{};
@@ -198,7 +281,8 @@ void FRenderer::DrawForwardObject(const FSceneView& View, const FMatrix& World,
 void FRenderer::DrawDeferredLighting(const FSceneView& View, const FDeferredViewTargets& Targets,
 	const FAmbientLightRenderData& AmbientLight,
 	const TArray<FDirectionalLightRenderData>& DirectionalLights,
-	const TArray<FPointLightRenderData>& PointLights)
+	const TArray<FPointLightRenderData>& PointLights,
+	const TArray<FSpotLightRenderData>& SpotLights)
 {
 	FPipelineState* PSO = FRenderResourceManager::GetPSO(EPSOType::DeferredLighting);
 	if (!PSO || !PSO->Shader || !PSO->Shader->VertexShader || !PSO->Shader->PixelShader || !DeferredLightCB)
@@ -209,17 +293,16 @@ void FRenderer::DrawDeferredLighting(const FSceneView& View, const FDeferredView
 		View.ViewLocation.Z, View.bIsPerspective ? 1.0f : 0.0f);
 	Constants.CameraForward = FVector4(View.ViewForward.X, View.ViewForward.Y, View.ViewForward.Z, 0.0f);
 	Constants.Ambient = AmbientLight;
-	const uint32 DirectionalCount = std::min<uint32>(static_cast<uint32>(DirectionalLights.Num()), MaxDirectionalLights);
-	Constants.DirectionalCounts[0] = DirectionalCount;
-	for (uint32 Index = 0; Index < DirectionalCount; ++Index)
-		Constants.DirectionalLights[Index] = DirectionalLights[Index];
-	const uint32 LightCount = std::min<uint32>(static_cast<uint32>(PointLights.Num()), MaxDeferredPointLights);
-	Constants.ViewportLightCount = FVector4(
+	if (!PackAndUploadSceneLights(SceneLightBuffer, DirectionalLights, PointLights,
+		SpotLights, Constants.LightCounts, Constants.LightOffsets))
+	{
+		HTR_LOG(Warning, "Deferred light buffer upload failed");
+		return;
+	}
+	Constants.ViewportPass = FVector4(
 		static_cast<float>(Targets.SceneColor->GetWidth()),
 		static_cast<float>(Targets.SceneColor->GetHeight()),
-		static_cast<float>(LightCount), 0.0f);
-	for (uint32 Index = 0; Index < LightCount; ++Index)
-		Constants.PointLights[Index] = PointLights[Index];
+		0.0f, 0.0f);
 	RenderCommand::UpdateBufferData(DeferredLightCB.get(), &Constants, sizeof(Constants));
 
 	RenderCommand::BindPipelineState(*PSO);
@@ -228,20 +311,24 @@ void FRenderer::DrawDeferredLighting(const FSceneView& View, const FDeferredView
 	RenderCommand::BindShaderResource(0, Targets.BaseColorMetallic.get(), EShaderBindFlagBits::Pixel);
 	RenderCommand::BindShaderResource(1, Targets.NormalRoughness.get(), EShaderBindFlagBits::Pixel);
 	RenderCommand::BindShaderResource(2, Targets.Depth.get(), EShaderBindFlagBits::Pixel);
+	RenderCommand::BindShaderResource(DeferredSceneLightSlot,
+		(PointLights.IsEmpty() && DirectionalLights.IsEmpty() && SpotLights.IsEmpty())
+			? nullptr : SceneLightBuffer.get(),
+		EShaderBindFlagBits::Pixel);
 	RenderCommand::Draw(3);
-	if (LightCount > 0)
+	if (!PointLights.IsEmpty() || !SpotLights.IsEmpty())
 	{
 		FPipelineState* AdditivePSO = FRenderResourceManager::GetPSO(EPSOType::DeferredPointLighting);
 		if (AdditivePSO && AdditivePSO->Shader && AdditivePSO->Shader->VertexShader && AdditivePSO->Shader->PixelShader)
 		{
-			Constants.ViewportLightCount.W = 1.0f;
+			Constants.ViewportPass.W = 1.0f;
 			RenderCommand::UpdateBufferData(DeferredLightCB.get(), &Constants, sizeof(Constants));
 			RenderCommand::BindPipelineState(*AdditivePSO);
 			RenderCommand::Draw(3);
 		}
 	}
 
-	RenderCommand::UnbindShaderResources(0, 3, EShaderBindFlagBits::Pixel);
+	RenderCommand::UnbindShaderResources(0, 4, EShaderBindFlagBits::Pixel);
 }
 
 void FRenderer::DrawToneMap(const FDeferredViewTargets& Targets)

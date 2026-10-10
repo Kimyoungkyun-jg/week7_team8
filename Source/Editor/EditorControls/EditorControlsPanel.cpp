@@ -34,13 +34,14 @@ void FEditorControlsPanel::Tick(float DeltaTime)
 // 선택한 클래스의 액터를 월드에 생성한다.
 void FEditorControlsPanel::AddActor(uint32 Index)
 {
+	if (Index >= static_cast<uint32>(Classes.Num())) return;
 	World->SpawnActor(Classes[Index]);
 }
 
 // 액터 생성·카메라 속성·기즈모·경로 추적 UI를 그린다.
 void FEditorControlsPanel::OnRender()
 {
-	ImGui::SetNextWindowSize(ImVec2(400, 200), ImGuiCond_FirstUseEver);
+	ImGui::SetNextWindowSize(ImVec2(400, 300), ImGuiCond_FirstUseEver);
 	ImGui::Begin("Editor Controls");
 	ImGui::Spacing();
 
@@ -87,6 +88,17 @@ void FEditorControlsPanel::OnRender()
 
 	ImGui::SameLine();
 	ImGui::TextDisabled("%s", CountText);
+
+	ImGui::Dummy(ImVec2(0.0f, SubsectionGap));
+	ImGui::SeparatorText("Light Spawn");
+	if (ImGui::Button("Directional Light"))
+		World->SpawnActor(ADirectionalLight::StaticClass());
+	ImGui::SameLine();
+	if (ImGui::Button("Spot Light"))
+		World->SpawnActor(ASpotLight::StaticClass());
+	ImGui::SameLine();
+	if (ImGui::Button("Point Light"))
+		World->SpawnActor(APointLightActor::StaticClass());
 
 	//////////////////////////////////////////////////////
 
@@ -200,7 +212,7 @@ void FEditorControlsPanel::DrawCameraProperties()
 	ImGui::Dummy(ImVec2(0.0f, SubsectionGap));
 	ImGui::TextDisabled("Projection");
 
-	// Camera Projection Table
+	// 카메라 투영 설정 표
 	if (ImGui::BeginTable("Camera Projection", 2))
 	{
 		ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 100.0f);
@@ -235,7 +247,7 @@ void FEditorControlsPanel::DrawCameraProperties()
 			}
 		}
 
-		// Near / Far
+		// 가까운 평면과 먼 평면
 		ImGui::TableNextRow();
 
 		ImGui::TableSetColumnIndex(0);
@@ -265,7 +277,7 @@ void FEditorControlsPanel::DrawCameraProperties()
 		ImGui::EndTable();
 	}
 
-	// Camera Transform Table
+	// 카메라 변환 설정 표
 	ImGui::Dummy(ImVec2(0.0f, SubsectionGap));
 	ImGui::TextDisabled("Transform");
 
@@ -279,7 +291,7 @@ void FEditorControlsPanel::DrawCameraProperties()
 
 		ImGui::TableNextRow();
 
-		// Camera Location
+		// 카메라 위치
 		ImGui::TableSetColumnIndex(0);
 		ImGui::Text("Location");
 
@@ -310,7 +322,7 @@ void FEditorControlsPanel::DrawCameraProperties()
 
 		ImGui::TableNextRow();
 
-		// Camera Rotation
+		// 카메라 회전
 		ImGui::TableSetColumnIndex(0);
 		ImGui::Text("Rotation");
 

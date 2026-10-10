@@ -21,7 +21,7 @@ struct FRenderStats
 	void Reset() { *this = FRenderStats(); }
 };
 
-// Persistent storage for one view. SceneRenderer borrows it for the current frame.
+// 뷰 하나의 데이터를 프레임 사이에도 보관한다. SceneRenderer는 현재 프레임 동안 이를 빌려 쓴다.
 struct FSceneRenderData
 {
 	struct alignas(64) FGatherChunk
@@ -47,6 +47,7 @@ struct FSceneRenderData
 	FAmbientLightRenderData AmbientLight{ FVector4(0.5f, 0.5f, 0.5f, 1.0f) };
 	TArray<FDirectionalLightRenderData> VisibleDirectionalLights;
 	TArray<FPointLightRenderData> VisiblePointLights;
+	TArray<FSpotLightRenderData> VisibleSpotLights;
 
 	void ResetScene()
 	{
@@ -69,6 +70,7 @@ struct FSceneRenderData
 		AmbientLight = FAmbientLightRenderData{ FVector4(0.5f, 0.5f, 0.5f, 1.0f) };
 		VisibleDirectionalLights.Reset();
 		VisiblePointLights.Reset();
+		VisibleSpotLights.Reset();
 		for (FGatherChunk& Chunk : GatherChunks)
 		{
 			Chunk.Packets.Reset();

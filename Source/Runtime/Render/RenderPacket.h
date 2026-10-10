@@ -23,7 +23,7 @@ struct FRenderPacket
     float CameraToParticleDistance = 0.0f;
     uint32 MaterialParamDataSize = 0;
     uint32 StartIndex = 0;
-    uint32 IndexCount = 0; // Zero selects the full index buffer.
+    uint32 IndexCount = 0; // 0이면 인덱스 버퍼 전체를 사용한다.
     uint32 Slot = InvalidObjectSlot;
     uint8 LODIndex = 0;
     bool bOccludedByGpu = false;
@@ -66,7 +66,7 @@ struct FViewContext
     }
 };
 
-// Shared bindings, with one ordinary indexed draw per item.
+// 바인딩을 공유하며 항목마다 일반 인덱스 드로우를 한 번 수행한다.
 struct FStaticDrawItem
 {
     const FPrimitiveSceneProxy* Proxy;
@@ -84,8 +84,8 @@ struct FStaticDrawGroup
     std::vector<FStaticDrawItem> Items;
 };
 
-// Owns the current frame's billboard/particle matrices together with their packets.
-// Blocks keep matrix addresses stable when either array grows.
+// 현재 프레임의 빌보드·파티클 행렬과 해당 패킷을 함께 보관한다.
+// 배열이 커져도 행렬 주소가 바뀌지 않도록 블록 단위로 저장한다.
 class FRenderQueue : public TArray<FRenderPacket>
 {
     using FPackets = TArray<FRenderPacket>;
