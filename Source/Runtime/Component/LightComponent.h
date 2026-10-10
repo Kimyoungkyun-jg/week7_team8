@@ -1,10 +1,10 @@
 #pragma once
 
-#include "SceneComponent.h"
+#include "LightComponentBase.h"
 
-class ULightComponent : public USceneComponent
+class ULightComponent : public ULightComponentBase
 {
-	DECLARE_CLASS(ULightComponent, USceneComponent)
+	DECLARE_CLASS(ULightComponent, ULightComponentBase)
 	REFLECT_START(ULightComponent)
 	REFLECT_END()
 public:

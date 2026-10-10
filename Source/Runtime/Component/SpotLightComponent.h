@@ -1,12 +1,12 @@
 #pragma once
 
-#include "SceneComponent.h"
+#include "LightComponent.h"
 
 class FLineBatcher;
 
-class USpotLightComponent : public USceneComponent
+class USpotLightComponent : public ULightComponent
 {
-	DECLARE_CLASS(USpotLightComponent, USceneComponent)
+	DECLARE_CLASS(USpotLightComponent, ULightComponent)
 
 	REFLECT_START(ClassName)
 		PROPERTY(InnerConeAngle)
@@ -48,8 +48,4 @@ private:
 
 	// Inner에서 Outer로 가며 밝기가 떨어지는 정도.
 	float Falloff = 1.0f;
-
-	float Intensity = 1.0f;
-
-	FVector4 LightColor = FVector4(1.0f, 1.0f, 0.6f, 1.0f);
 };

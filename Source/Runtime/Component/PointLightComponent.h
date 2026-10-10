@@ -30,8 +30,6 @@ protected:
 	void DestroyRenderState() override;
 
 private:
-	FVector4 LightColor{1.0f, 1.0f, 1.0f, 1.0f};
-	float Intensity = 8.0f;
 	float AttenuationRadius = 10.0f;
 	bool bEnabled = true;
 };
