@@ -79,6 +79,7 @@ private:
 		bool bDrawPrimitives = true;
 		bool bEnableFog = true;
 		bool bEnableFXAA = false;
+		bool bEnableClusteredLightCulling = true;
 		bool bShowSceneDepth = false;
 		float SceneDepthRange = 1.0f;
 

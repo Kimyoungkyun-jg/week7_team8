@@ -67,7 +67,7 @@ void FSceneRenderer::InitViews(FRenderer* Renderer, const FAmbientLightRenderDat
 	{
 		if (!Light->IsEnabled() || !Light->IsShown(View.bGameView)) continue;
 		const FPointLightRenderData& Data = Light->GetRenderData();
-		if (!IntersectSphereFrustum(Data.PositionRadius, View.Frustum.Planes)) continue;
+		//if (!IntersectSphereFrustum(Data.PositionRadius, View.Frustum.Planes)) continue;
 		RenderData.VisiblePointLights.Add(Data);
 	}
 
@@ -75,7 +75,7 @@ void FSceneRenderer::InitViews(FRenderer* Renderer, const FAmbientLightRenderDat
 	{
 		if (!Light->IsEnabled() || !Light->IsShown(View.bGameView)) continue;
 		const FSpotLightRenderData& Data = Light->GetRenderData();
-		if (!IntersectSphereFrustum(Data.PositionRadius, View.Frustum.Planes)) continue;
+		//if (!IntersectSphereFrustum(Data.PositionRadius, View.Frustum.Planes)) continue;
 		RenderData.VisibleSpotLights.Add(Data);
 	}
 }
@@ -91,13 +91,14 @@ bool FSceneRenderer::RenderDeferredOpaque(FRenderer* Renderer, const FDeferredVi
 	return true;
 }
 
-bool FSceneRenderer::RenderForwardOpaque(FRenderer* Renderer, ELightingModel LightingModel)
+bool FSceneRenderer::RenderForwardOpaque(FRenderer* Renderer, ELightingModel LightingModel,
+	bool bEnableClusteredLightCulling)
 {
 	if (!Renderer) return false;
 	PrepareDrawData(Renderer, RenderData);
 	return Renderer->RenderForwardOpaque(View, RenderData.RenderQueue, RenderData.AmbientLight,
 		RenderData.VisibleDirectionalLights, RenderData.VisiblePointLights,
-		RenderData.VisibleSpotLights, LightingModel);
+		RenderData.VisibleSpotLights, LightingModel, bEnableClusteredLightCulling);
 }
 
 void FSceneRenderer::RenderDeferredLighting(FRenderer* Renderer, const FDeferredViewTargets& Targets)

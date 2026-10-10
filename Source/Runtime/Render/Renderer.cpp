@@ -150,6 +150,9 @@ bool FRenderer::Init()
 	ForwardLightCB = RenderCommand::CreateConstantBuffer(sizeof(FForwardLightingConstants));
 	ForwardMaterialCB = RenderCommand::CreateConstantBuffer(sizeof(FForwardMaterialConstants));
 
+	if (!ForwardClusterGrid.Init())
+		HTR_LOG(Warning, "Forward cluster compute shader unavailable");
+
 	GPUOcclusion.Init();   // 실패해도 오클루전만 못 쓸 뿐 렌더링은 된다
 
 	return true;
@@ -202,14 +205,23 @@ bool FRenderer::RenderForwardOpaque(const FSceneView& View, const FRenderQueue& 
 	const FAmbientLightRenderData& AmbientLight,
 	const TArray<FDirectionalLightRenderData>& DirectionalLights,
 	const TArray<FPointLightRenderData>& PointLights,
-	const TArray<FSpotLightRenderData>& SpotLights, ELightingModel LightingModel)
+	const TArray<FSpotLightRenderData>& SpotLights, ELightingModel LightingModel,
+	bool bEnableClusteredLightCulling)
 {
 	FPipelineState PSO;
-	if (!SetupForwardPass(View, AmbientLight, DirectionalLights, PointLights, SpotLights, LightingModel, PSO))
+	FForwardLightingConstants Lighting{};
+	if (!SetupForwardPass(View, AmbientLight, DirectionalLights, PointLights, SpotLights,
+		LightingModel, PSO, Lighting))
 		return false;
+	bool bClustersBuilt = false;
+	if (bEnableClusteredLightCulling && LightingModel != ELightingModel::Gouraud &&
+		(Lighting.LightCounts[0] || Lighting.LightCounts[1]))
+		bClustersBuilt = ForwardClusterGrid.Build(View, Lighting, SceneLightBuffer.get());
+	ForwardClusterGrid.PreparePixelShader(View, Lighting, bClustersBuilt);
 
 	DrawForwardStaticGroups(View, PSO);
 	DrawForwardPackets(View, InQueue, PSO);
+	ForwardClusterGrid.UnbindPixelShader();
 	RenderCommand::UnbindShaderResources(ForwardSceneLightSlot, 1,
 		EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
 
@@ -221,7 +233,7 @@ bool FRenderer::SetupForwardPass(const FSceneView& View,
 	const TArray<FDirectionalLightRenderData>& DirectionalLights,
 	const TArray<FPointLightRenderData>& PointLights,
 	const TArray<FSpotLightRenderData>& SpotLights, ELightingModel LightingModel,
-	FPipelineState& OutPSO)
+	FPipelineState& OutPSO, FForwardLightingConstants& OutLighting)
 {
 	FPipelineState* BasePSO = FRenderResourceManager::GetPSO(EPSOType::StaticMesh_Forward);
 	FShaderProgram* Program = FRenderResourceManager::GetForwardShaderProgram(LightingModel);
@@ -230,13 +242,13 @@ bool FRenderer::SetupForwardPass(const FSceneView& View,
 	OutPSO = *BasePSO;
 	OutPSO.Shader = Program;
 
-	FForwardLightingConstants Lighting{};
-	Lighting.Ambient = AmbientLight;
-	Lighting.CameraPosition = FVector4(View.ViewLocation.X, View.ViewLocation.Y, View.ViewLocation.Z, 1.0f);
+	OutLighting = {};
+	OutLighting.Ambient = AmbientLight;
+	OutLighting.CameraPosition = FVector4(View.ViewLocation.X, View.ViewLocation.Y, View.ViewLocation.Z, 1.0f);
 	if (!PackAndUploadSceneLights(SceneLightBuffer, DirectionalLights, PointLights,
-		SpotLights, Lighting.LightCounts, Lighting.LightOffsets))
+		SpotLights, OutLighting.LightCounts, OutLighting.LightOffsets))
 		return false;
-	RenderCommand::UpdateBufferData(ForwardLightCB.get(), &Lighting, sizeof(Lighting));
+	RenderCommand::UpdateBufferData(ForwardLightCB.get(), &OutLighting, sizeof(OutLighting));
 	SetupView(View);
 	return true;
 }
@@ -248,8 +260,13 @@ void FRenderer::BindForwardMaterial(UMaterial* Material, const FSceneView& View,
 		EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
 	if (View.bIsWireframe)
 		RenderCommand::SetRasterizerState(ERasterizerState::Wireframe);
-	for (size_t Index = 0; Index < Material->Textures.size(); ++Index)
+	UTexture2D* ColorTexture = Material->Textures.IsEmpty() ? nullptr : Material->Textures[0];
+	const bool bHasColorTexture = ColorTexture && ColorTexture->GetResource() &&
+		ColorTexture->GetResource()->GetSRV();
+	RenderCommand::BindShaderResource(0, bHasColorTexture ? ColorTexture : nullptr, EShaderBindFlagBits::Pixel);
+	for (size_t Index = 1; Index < Material->Textures.size(); ++Index)
 		RenderCommand::BindShaderResource(static_cast<uint32>(Index), Material->Textures[Index], EShaderBindFlagBits::Pixel);
+	ForwardClusterGrid.BindPixelShader();
 	RenderCommand::BindShaderResource(ForwardSceneLightSlot,
 		SceneLightBuffer && SceneLightBuffer->GetSRV() ? SceneLightBuffer.get() : nullptr,
 		EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
@@ -257,7 +274,7 @@ void FRenderer::BindForwardMaterial(UMaterial* Material, const FSceneView& View,
 
 	FForwardMaterialConstants Params{};
 	Params.BaseColor = Material->BaseColor;
-	Params.SurfaceParams = FVector4(0.25f, 32.0f, 0.0f, 0.0f);
+	Params.SurfaceParams = FVector4(0.25f, 32.0f, bHasColorTexture ? 1.0f : 0.0f, 0.0f);
 	const FVector2 UVOffset = Material->UVScrollSpeed * EngineTimer::GetTotalTime();
 	Params.UVTransform = FVector4(UVOffset.X, UVOffset.Y, 1.0f, 1.0f);
 	RenderCommand::UpdateBufferData(ForwardMaterialCB.get(), &Params, sizeof(Params));

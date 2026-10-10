@@ -703,6 +703,7 @@ void UEditorEngine::RenderGameFrame(FGameViewportClient* GameClient, const FScen
 	{
 		Options.RenderingPath = SettingsPanel->GetSettings().RenderingPath;
 		Options.LightingModel = SettingsPanel->GetSettings().LightingModel;
+		Options.bEnableClusteredLightCulling = SettingsPanel->GetSettings().bEnableClusteredLightCulling;
 	}
 	FDeferredViewTargets& Targets = GameClient->GetViewTargets();
 	const bool bRendered = Options.RenderingPath == ERenderingPath::Forward
@@ -806,7 +807,8 @@ bool UEditorEngine::ForwardRender(FDeferredViewTargets& Targets, const FSceneVie
 
 	// Forward opaque shading writes lit linear color and depth in one mesh pass.
 	RenderCommand::BeginRenderPass(Targets.LightingHDR.get(), DepthTarget, Width, Height);
-	if (Options.bDrawPrimitives && !SceneRenderer.RenderForwardOpaque(Renderer, Options.LightingModel))
+	if (Options.bDrawPrimitives && !SceneRenderer.RenderForwardOpaque(Renderer, Options.LightingModel,
+		Options.bEnableClusteredLightCulling))
 	{
 		RenderCommand::EndRenderPass();
 		return false;
@@ -1022,6 +1024,7 @@ void UEditorEngine::RenderFrame(FEditorViewportClient *ViewClient,
 	Options.bEnableFXAA = SettingsPanel->GetSettings().bEnableFXAA;
 	Options.RenderingPath = SettingsPanel->GetSettings().RenderingPath;
 	Options.LightingModel = SettingsPanel->GetSettings().LightingModel;
+	Options.bEnableClusteredLightCulling = SettingsPanel->GetSettings().bEnableClusteredLightCulling;
 	Options.bShowSceneDepth = !bIsPIE && ViewClient->IsSceneDepth();
 	Options.SceneDepthRange = ViewClient->GetMaxRange();
 

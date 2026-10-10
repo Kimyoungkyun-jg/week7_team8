@@ -8,6 +8,7 @@
 #include "Occlusion/GPUOcclusion.h"
 #include "Engine/LightSceneProxy.h"
 #include "Render/Buffer.h"
+#include "ForwardLightCluster.h"
 
 // 오클루전 컬링의 효과 상한을 재기 위한 측정 결과 (디버그 전용)
 struct FOcclusionMeasureResult
@@ -45,7 +46,8 @@ public:
 	bool RenderForwardOpaque(const FSceneView& View, const FRenderQueue& InQueue,
 		const FAmbientLightRenderData& AmbientLight, const TArray<FDirectionalLightRenderData>& DirectionalLights,
 		const TArray<FPointLightRenderData>& PointLights,
-		const TArray<FSpotLightRenderData>& SpotLights, ELightingModel LightingModel);
+		const TArray<FSpotLightRenderData>& SpotLights, ELightingModel LightingModel,
+		bool bEnableClusteredLightCulling);
 
 	// 반투명 요소 렌더링
 	void RenderTranslucent(const FSceneView& View, const FRenderQueue& InQueue);
@@ -71,6 +73,7 @@ private:
 	TUniquePtr<FConstantBuffer> ForwardObjectCB;
 	TUniquePtr<FConstantBuffer> ForwardLightCB;
 	TUniquePtr<FConstantBuffer> ForwardMaterialCB;
+	FForwardLightClusterGrid ForwardClusterGrid;
 
 	// 오브젝트 상수 버퍼
 	TUniquePtr<FConstantBuffer> PerObjectSlotCB;
@@ -95,7 +98,7 @@ private:
 		const TArray<FDirectionalLightRenderData>& DirectionalLights,
 		const TArray<FPointLightRenderData>& PointLights,
 		const TArray<FSpotLightRenderData>& SpotLights,
-		ELightingModel LightingModel, FPipelineState& OutPSO);
+		ELightingModel LightingModel, FPipelineState& OutPSO, FForwardLightingConstants& OutLighting);
 	void BindForwardMaterial(UMaterial* Material, const FSceneView& View, const FPipelineState& PSO);
 	void DrawForwardObject(const FSceneView& View, const FMatrix& World, uint32 IndexCount, uint32 StartIndex);
 

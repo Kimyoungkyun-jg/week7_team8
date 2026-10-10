@@ -40,12 +40,29 @@ cbuffer Lighting : register(b1)
 };
 
 StructuredBuffer<FSceneLightRenderInfo> SceneLights : register(t8);
+StructuredBuffer<uint> ClusterCounts : register(t9);
+StructuredBuffer<uint> ClusterLightIndices : register(t10);
+
+// Compute 패스의 b0와 같은 상수 버퍼를 픽셀 셰이더의 b3에도 바인딩한다.
+cbuffer ForwardClusterConstants : register(b3)
+{
+    matrix ClusterInverseViewProjection;
+    float4 ClusterCameraPosition;
+    float4 ClusterCameraForward;
+    uint3 ClusterDimensions;
+    uint bOrthographic;
+    uint4 ClusterViewportSize;
+    uint4 ClusterLightCounts;
+    uint4 ClusterLightOffsets;
+    float4 ClusterDepthRange;
+    uint4 ClusterOptions; // x: 빌드 성공, y: 타일 크기, z: 클러스터당 최대 라이트 수
+};
 
 cbuffer MaterialParams : register(b2)
 {
     float4 BaseColor;
     float4 Emissive;
-    float4 SurfaceParams; // x: 정반사 세기, y: 광택 지수
+    float4 SurfaceParams; // x: 정반사 세기, y: 광택 지수, z: 컬러 텍스처 사용 여부
     float4 UVTransform; // xy: 이동량, zw: 배율
 };
 
@@ -150,10 +167,8 @@ void CalculateSpotLight(inout FLightResult Result, FSceneLightRenderInfo Info,
     AddLight(Result, N, V, L, Radiance, bIncludeSpecular);
 }
 
-FLightResult CalculateLighting(float3 P, float3 Normal, bool bIncludeSpecular)
+FLightResult CalculateBaseLighting(float3 N, float3 V, bool bIncludeSpecular)
 {
-    float3 N = normalize(Normal);
-    float3 V = normalize(CameraPosition.xyz - P);
     FLightResult Result;
     Result.Diffuse = CalculateAmbientLight(Ambient);
     Result.Specular = 0.0f;
@@ -161,12 +176,82 @@ FLightResult CalculateLighting(float3 P, float3 Normal, bool bIncludeSpecular)
     [loop]
     for (uint DirectionalIndex = 0; DirectionalIndex < LightCounts.z; ++DirectionalIndex)
         CalculateDirectionalLight(Result, SceneLights[LightOffsets.z + DirectionalIndex], N, V, bIncludeSpecular);
+    return Result;
+}
+
+void AddAllLocalLights(inout FLightResult Result, float3 P, float3 N,
+    float3 V, bool bIncludeSpecular)
+{
     [loop]
     for (uint PointIndex = 0; PointIndex < LightCounts.x; ++PointIndex)
         CalculatePointLight(Result, SceneLights[LightOffsets.x + PointIndex], P, N, V, bIncludeSpecular);
     [loop]
     for (uint SpotIndex = 0; SpotIndex < LightCounts.y; ++SpotIndex)
         CalculateSpotLight(Result, SceneLights[LightOffsets.y + SpotIndex], P, N, V, bIncludeSpecular);
+}
+
+FLightResult CalculateLighting(float3 P, float3 Normal, bool bIncludeSpecular)
+{
+    float3 N = normalize(Normal);
+    float3 V = normalize(CameraPosition.xyz - P);
+    FLightResult Result = CalculateBaseLighting(N, V, bIncludeSpecular);
+    AddAllLocalLights(Result, P, N, V, bIncludeSpecular);
+    return Result;
+}
+
+// 픽셀 위치와 카메라 전방 깊이를 Compute 패스에서 사용한 클러스터 격자로 변환한다.
+uint CalculateForwardClusterID(float2 PixelPosition, float3 WorldPosition)
+{
+    uint2 Pixel = min((uint2)PixelPosition, ClusterViewportSize.xy - 1u);
+    uint2 Tile = min(Pixel / ClusterOptions.y, ClusterDimensions.xy - 1u);
+
+    float NearDepth = ClusterDepthRange.x;
+    float FarDepth = ClusterDepthRange.y;
+    float ViewDepth = max(dot(WorldPosition - ClusterCameraPosition.xyz,
+        ClusterCameraForward.xyz), NearDepth);
+    float SliceFraction = bOrthographic != 0
+        ? (ViewDepth - NearDepth) / (FarDepth - NearDepth)
+        : log2(ViewDepth / NearDepth) / log2(max(FarDepth / NearDepth, 1.0f));
+    uint DepthSlice = min((uint)(saturate(SliceFraction) * ClusterDimensions.z),
+        ClusterDimensions.z - 1u);
+
+    return (DepthSlice * ClusterDimensions.y + Tile.y) * ClusterDimensions.x + Tile.x;
+}
+
+FLightResult CalculateClusteredLighting(float2 PixelPosition, float3 P,
+    float3 Normal, bool bIncludeSpecular)
+{
+    float3 N = normalize(Normal);
+    float3 V = normalize(CameraPosition.xyz - P);
+    FLightResult Result = CalculateBaseLighting(N, V, bIncludeSpecular);
+
+    if (ClusterOptions.x == 0)
+    {
+        AddAllLocalLights(Result, P, N, V, bIncludeSpecular);
+    }
+    else
+    {
+        uint ClusterID = CalculateForwardClusterID(PixelPosition, P);
+        uint ClusterLightCount = ClusterCounts[ClusterID];
+        if (ClusterLightCount > ClusterOptions.z)
+        {
+            AddAllLocalLights(Result, P, N, V, bIncludeSpecular);
+        }
+        else
+        {
+            uint FirstSpotIndex = LightOffsets.y;
+            [loop]
+            for (uint Index = 0; Index < ClusterLightCount; ++Index)
+            {
+                uint LightIndex = ClusterLightIndices[ClusterID * ClusterOptions.z + Index];
+                FSceneLightRenderInfo Light = SceneLights[LightIndex];
+                if (LightIndex < FirstSpotIndex)
+                    CalculatePointLight(Result, Light, P, N, V, bIncludeSpecular);
+                else
+                    CalculateSpotLight(Result, Light, P, N, V, bIncludeSpecular);
+            }
+        }
+    }
     return Result;
 }
 
@@ -192,9 +277,17 @@ VS_OUT Uber_VS(VS_IN Input)
 
 float4 Uber_PS(VS_OUT Input) : SV_TARGET
 {
-    float4 TextureColor = ColorTexture.Sample(ColorSampler, Input.UV);
-    float3 Albedo = pow(max(TextureColor.rgb, 0.0f), 2.2f)
-        * BaseColor.rgb * Input.Color.rgb;
+    float4 SurfaceColor;
+    if (SurfaceParams.z > 0.5f)
+    {
+        float4 TextureColor = ColorTexture.Sample(ColorSampler, Input.UV);
+        SurfaceColor = float4(pow(max(TextureColor.rgb, 0.0f), 2.2f), TextureColor.a);
+    }
+    else
+    {
+        SurfaceColor = Input.Color;
+    }
+    float3 Albedo = SurfaceColor.rgb * BaseColor.rgb;
     float3 Diffuse;
     float3 Specular = 0.0f;
 
@@ -202,15 +295,17 @@ float4 Uber_PS(VS_OUT Input) : SV_TARGET
     Diffuse = Input.VertexDiffuse;
     Specular = Input.VertexSpecular;
 #elif LIGHTING_MODEL_LAMBERT
-    Diffuse = CalculateLighting(Input.WorldPosition, Input.WorldNormal, false).Diffuse;
+    Diffuse = CalculateClusteredLighting(Input.Position.xy, Input.WorldPosition,
+        Input.WorldNormal, false).Diffuse;
 #elif LIGHTING_MODEL_PHONG
-    FLightResult Lit = CalculateLighting(Input.WorldPosition, Input.WorldNormal, true);
+    FLightResult Lit = CalculateClusteredLighting(Input.Position.xy, Input.WorldPosition,
+        Input.WorldNormal, true);
     Diffuse = Lit.Diffuse;
     Specular = Lit.Specular;
 #endif
 
     return float4(Albedo * Diffuse + Specular + Emissive.rgb,
-        TextureColor.a * BaseColor.a * Input.Color.a);
+        SurfaceColor.a * BaseColor.a);
 }
 
 // 현재 리소스 매니저는 .hlsl 파일을 스캔할 때 mainVS/mainPS 진입점을 찾는다.

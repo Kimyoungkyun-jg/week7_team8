@@ -19,6 +19,7 @@ struct FEditorSettings
 	bool bDrawBatchLine = true;
 	bool bDrawPSGrid = false;
 	bool bEnableFXAA = false;
+	bool bEnableClusteredLightCulling = true;
 	ERenderingPath RenderingPath = ERenderingPath::Deferred;
 	ELightingModel LightingModel = ELightingModel::Gouraud;
 	FVector AmbientColor{ 0.5f, 0.5f, 0.5f };
