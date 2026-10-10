@@ -23,7 +23,7 @@ FSceneRenderer::FSceneRenderer(UWorld* InWorld, const FSceneView& InView, FScene
 }
 
 // 구체와 절두체 평면 교차 판별
-static bool IntersectSphereFrustum(const FVector4& PositionRadius, const FPlane (&Planes)[6])
+bool FSceneRenderer::IntersectSphereFrustum(const FVector4& PositionRadius, const FPlane (&Planes)[6]) const
 {
 	const float Radius = PositionRadius.W;
 	for (const FPlane& Plane : Planes)

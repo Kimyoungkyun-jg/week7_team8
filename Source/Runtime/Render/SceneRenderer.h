@@ -45,9 +45,9 @@ public:
 	// 뷰 정보 조회
 	const FSceneView& GetView() const { return View; }
 	
-	bool IntersectSphereFrustum(const FVector4& PositionRadius, const FPlane(&Planes)[6]);
-
 private:
+	bool IntersectSphereFrustum(const FVector4& PositionRadius, const FPlane (&Planes)[6]) const;
+
 	UWorld* World = nullptr;
 	FSceneView View;
 	FSceneRenderData& RenderData;
