@@ -81,9 +81,14 @@ private:
 		bool bEnableFXAA = false;
 		bool bShowSceneDepth = false;
 		float SceneDepthRange = 1.0f;
+
+		ERenderingPath RenderingPath = ERenderingPath::Deferred;
+		ELightingModel LightingModel = ELightingModel::Gouraud;
 	};
 	// Common scene passes. Leaves SceneColor/Depth bound for caller overlays and EndRenderPass.
-	bool RenderSceneFrame(FDeferredViewTargets& Targets, const FSceneView& SceneView,
+	bool DeferredRender(FDeferredViewTargets& Targets, const FSceneView& SceneView,
+		FSceneRenderer& SceneRenderer, UWorld* TargetWorld, const FSceneRenderOptions& Options);
+	bool ForwardRender(FDeferredViewTargets& Targets, const FSceneView& SceneView,
 		FSceneRenderer& SceneRenderer, UWorld* TargetWorld, const FSceneRenderOptions& Options);
 	void RenderSceneText(UWorld* TargetWorld, const FSceneView& SceneView);
 	bool RenderHeightFog(UWorld* TargetWorld, const FSceneView& SceneView, FTexture2D* DepthTarget, FTexture2D* ColorTarget);

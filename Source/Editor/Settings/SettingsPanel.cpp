@@ -45,6 +45,22 @@ void FSettingsPanel::OnRender()
 	ImGui::Checkbox("Draw Primitives", &Settings.bDrawPrimitives);
 	ImGui::Checkbox("Draw Bounding Box", &Settings.bDrawBoundingBox);
 	ImGui::Checkbox("Show Object UUID", &Settings.bShowUUID);
+	const char* RenderingPaths[] = { "Forward", "Deferred" };
+	int RenderingPathIndex = static_cast<int>(Settings.RenderingPath);
+	ImGui::SetNextItemWidth(200.0f);
+	if (ImGui::Combo("Rendering Path", &RenderingPathIndex, RenderingPaths, IM_ARRAYSIZE(RenderingPaths)))
+		Settings.RenderingPath = static_cast<ERenderingPath>(RenderingPathIndex);
+
+	const char* LightingModels[] = { "Gouraud", "Lambert", "Phong" };
+	int LightingModelIndex = static_cast<int>(Settings.LightingModel);
+	ImGui::SetNextItemWidth(200.0f);
+	if (ImGui::Combo("Lighting Model", &LightingModelIndex, LightingModels, IM_ARRAYSIZE(LightingModels)))
+		Settings.LightingModel = static_cast<ELightingModel>(LightingModelIndex);
+	ImGui::SetNextItemWidth(200.0f);
+	ImGui::ColorEdit3("Ambient Color", &Settings.AmbientColor.X);
+	ImGui::SetNextItemWidth(200.0f);
+	ImGui::DragFloat("Ambient Intensity", &Settings.AmbientIntensity, 0.01f,
+		0.0f, 10.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
 
 	ImGui::Dummy(ImVec2(0.0f, SectionGap));
 	ImGui::SeparatorText("Scene Depth");
@@ -138,6 +154,13 @@ bool FSettingsPanel::SaveSettings() const
 	File << "DrawPSGrid=" << Settings.bDrawPSGrid << "\n";
 	File << "SceneDepthMaxRange=" << Settings.SceneDepthMaxRange << "\n";
 	File << "EnableFXAA=" << Settings.bEnableFXAA << "\n";
+	File << "RenderingPath=" << (Settings.RenderingPath == ERenderingPath::Forward ? "Forward" : "Deferred") << "\n";
+	File << "LightingModel=" << (Settings.LightingModel == ELightingModel::Gouraud ? "Gouraud" :
+		Settings.LightingModel == ELightingModel::Lambert ? "Lambert" : "Phong") << "\n";
+	File << "AmbientColorR=" << Settings.AmbientColor.X << "\n";
+	File << "AmbientColorG=" << Settings.AmbientColor.Y << "\n";
+	File << "AmbientColorB=" << Settings.AmbientColor.Z << "\n";
+	File << "AmbientIntensity=" << Settings.AmbientIntensity << "\n";
 	File << "\n";
 
 	File << "[Editor]\n";
@@ -260,6 +283,30 @@ bool FSettingsPanel::LoadSettings()
 				else if (Key == "DrawPSGrid") Settings.bDrawPSGrid = std::stoi(ValueStr);
 				else if (Key == "SceneDepthMaxRange") Settings.SceneDepthMaxRange = std::stof(ValueStr);
 				else if (Key == "EnableFXAA") Settings.bEnableFXAA = std::stoi(ValueStr);
+				else if (Key == "RenderingPath")
+				{
+					if (ValueStr == "Forward") Settings.RenderingPath = ERenderingPath::Forward;
+					else if (ValueStr == "Deferred") Settings.RenderingPath = ERenderingPath::Deferred;
+				}
+				else if (Key == "LightingModel")
+				{
+					if (ValueStr == "Gouraud") Settings.LightingModel = ELightingModel::Gouraud;
+					else if (ValueStr == "Lambert") Settings.LightingModel = ELightingModel::Lambert;
+					else if (ValueStr == "Phong") Settings.LightingModel = ELightingModel::Phong;
+				}
+				else if (Key == "AmbientColorR" || Key == "AmbientColorG" ||
+					Key == "AmbientColorB" || Key == "AmbientIntensity")
+				{
+					std::istringstream Number(ValueStr);
+					float Value;
+					if (Number >> Value && std::isfinite(Value))
+					{
+						if (Key == "AmbientColorR") Settings.AmbientColor.X = FMath::Clamp(Value, 0.0f, 1.0f);
+						else if (Key == "AmbientColorG") Settings.AmbientColor.Y = FMath::Clamp(Value, 0.0f, 1.0f);
+						else if (Key == "AmbientColorB") Settings.AmbientColor.Z = FMath::Clamp(Value, 0.0f, 1.0f);
+						else Settings.AmbientIntensity = FMath::Clamp(Value, 0.0f, 10.0f);
+					}
+				}
 
 				else if (Key == "CameraMoveSpeed") Settings.CameraSpeed = std::stof(ValueStr);
 				else if (Key == "CameraRotateSensitivity") Settings.MouseSensitivity = std::stof(ValueStr);

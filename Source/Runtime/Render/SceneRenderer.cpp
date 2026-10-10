@@ -23,7 +23,7 @@ FSceneRenderer::FSceneRenderer(UWorld* InWorld, const FSceneView& InView, FScene
 }
 
 // 가시성 검사 및 렌더 큐 수집
-void FSceneRenderer::InitViews(FRenderer* Renderer)
+void FSceneRenderer::InitViews(FRenderer* Renderer, const FAmbientLightRenderData& AmbientLight)
 {
 	if (!World)
 	{
@@ -33,9 +33,18 @@ void FSceneRenderer::InitViews(FRenderer* Renderer)
 
 	// 월드 프리미티브 수집 및 절두체 컬링
 	GatherRenderPackets(World->GetScene(), RenderData, CachedViewContext, &View.Frustum, Renderer);
+	RenderData.AmbientLight = AmbientLight;
 
 	// 렌더 큐 자체 정렬
 	RenderData.RenderQueue.Sort();
+
+	const auto& DirectionalLights = World->GetScene().GetDirectionalLights();
+	for (const FDirectionalLightSceneProxy* Light : DirectionalLights)
+	{
+		if (!Light->IsEnabled() || !Light->IsShown(View.bGameView)) continue;
+		if (RenderData.VisibleDirectionalLights.Num() >= MaxDirectionalLights) break;
+		RenderData.VisibleDirectionalLights.Add(Light->GetRenderData());
+	}
 
 	for (const FLightSceneProxy* Light : World->GetScene().GetLights()) // 월드에 있는 모든 라이트 정보 가져오기
 	{
@@ -62,21 +71,32 @@ void FSceneRenderer::InitViews(FRenderer* Renderer)
 	}
 }
 
-bool FSceneRenderer::RenderGBuffer(FRenderer* Renderer, const FDeferredViewTargets& Targets, uint32 Width, uint32 Height)
+bool FSceneRenderer::RenderDeferredOpaque(FRenderer* Renderer, const FDeferredViewTargets& Targets, uint32 Width, uint32 Height)
 {
 	if (!Renderer || !RenderCommand::BeginGBufferPass(Targets, Width, Height))
 		return false;
 
 	PrepareDrawData(Renderer, RenderData);
-	Renderer->RenderOpaque(View, RenderData.RenderQueue, true);
+	Renderer->RenderDeferredOpaque(View, RenderData.RenderQueue, true);
 	RenderCommand::EndRenderPass();
 	return true;
+}
+
+bool FSceneRenderer::RenderForwardOpaque(FRenderer* Renderer, ELightingModel LightingModel)
+{
+	if (!Renderer) return false;
+	PrepareDrawData(Renderer, RenderData);
+	return Renderer->RenderForwardOpaque(View, RenderData.RenderQueue, RenderData.AmbientLight,
+		RenderData.VisibleDirectionalLights,
+		RenderData.VisiblePointLights, LightingModel);
 }
 
 void FSceneRenderer::RenderDeferredLighting(FRenderer* Renderer, const FDeferredViewTargets& Targets)
 {
 	if (Renderer)
-		Renderer->DrawDeferredLighting(View, Targets, RenderData.VisiblePointLights);
+		Renderer->DrawDeferredLighting(View, Targets, RenderData.AmbientLight,
+			RenderData.VisibleDirectionalLights,
+			RenderData.VisiblePointLights);
 }
 
 void FSceneRenderer::RenderToneMap(FRenderer* Renderer, const FDeferredViewTargets& Targets)
@@ -100,7 +120,7 @@ void FSceneRenderer::RenderTranslucent(FRenderer* Renderer, FConstantBuffer* Fog
 }
 
 void FSceneRenderer::GatherRenderPackets(FScene& Scene, FSceneRenderData& Data,
-	const FViewContext& View, const FFrustumPlanes* Frustum, FRenderer* Renderer)
+	const FViewContext& View, const FFrustumPlanes* Frustum, FRenderer* Renderer) //여기서 꼭 renderer를 매개변수로 받아야 할까?
 {
 	Data.ResetFrame();
 	FRenderQueue& RenderQueue = Data.RenderQueue;

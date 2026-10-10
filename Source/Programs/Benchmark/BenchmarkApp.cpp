@@ -335,7 +335,7 @@ void UBenchmarkEngine::Tick(float DeltaTime)
 	{
 		SCOPE_CYCLE_COUNTER(STAT_RenderOpaqueTotal);
 		FSceneRenderer::PrepareDrawData(Renderer, RenderData);
-		Renderer->RenderOpaque(BenchmarkView, RenderData.RenderQueue);
+		Renderer->RenderDeferredOpaque(BenchmarkView, RenderData.RenderQueue);
 	}
 
 	// Grid가 깊이를 쓰기 전, 불투명만 그려진 깊이 버퍼로 측정한다.

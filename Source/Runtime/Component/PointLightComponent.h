@@ -1,26 +1,22 @@
 #pragma once
 
 #include "Component/LightComponent.h"
-#include "Math/Vector4.h"
 
 class UPointLightComponent : public ULightComponent
 {
 	DECLARE_CLASS(UPointLightComponent, ULightComponent)
 	REFLECT_START(UPointLightComponent)
-		PROPERTY_TYPE(LightColor, Color)
-		PROPERTY(Intensity)
 		PROPERTY(AttenuationRadius)
+		PROPERTY_RANGE(RadiusFallOff, 0.0f, 10.0f)
 		PROPERTY(bEnabled)
 	REFLECT_END()
 
 public:
 	~UPointLightComponent() override { UnregisterComponent(); }
-	const FVector4& GetLightColor() const { return LightColor; }
-	void SetLightColor(const FVector4& InColor) { LightColor = InColor; OnPropertyChanged("LightColor"); }
-	float GetIntensity() const { return Intensity; }
-	void SetIntensity(float InIntensity) { Intensity = InIntensity; OnPropertyChanged("Intensity"); }
 	float GetAttenuationRadius() const { return AttenuationRadius; }
 	void SetAttenuationRadius(float InRadius) { AttenuationRadius = InRadius; OnPropertyChanged("AttenuationRadius"); }
+	float GetRadiusFallOff() const { return RadiusFallOff; }
+	void SetRadiusFallOff(float InFallOff) { RadiusFallOff = InFallOff; OnPropertyChanged("RadiusFallOff"); }
 	bool IsEnabled() const { return bEnabled; }
 	void SetEnabled(bool bInEnabled) { bEnabled = bInEnabled; OnPropertyChanged("bEnabled"); }
 
@@ -30,8 +26,7 @@ protected:
 	void DestroyRenderState() override;
 
 private:
-	FVector4 LightColor{1.0f, 1.0f, 1.0f, 1.0f};
-	float Intensity = 8.0f;
 	float AttenuationRadius = 10.0f;
+	float RadiusFallOff = 2.0f;
 	bool bEnabled = true;
 };

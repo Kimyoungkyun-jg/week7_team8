@@ -8,6 +8,7 @@
 #include "Component/TextRenderComponent.h"
 #include "Component/SpotLightComponent.h"
 #include "Component/PointLightComponent.h"
+#include "Component/DirectionalLightComponent.h"
 #include "Component/RotationMovementComponent.h"
 #include "Component/ParticleSubUVComponent.h"
 #include "Component/BillboardComponent.h"
@@ -1014,6 +1015,13 @@ void FDetailsPanel::DrawAddComponentPopup(AActor * Owner)
 		if (ImGui::Selectable("PointLight Component"))
 		{
 			auto* NewComp = Owner->CreateDefaultSubobject<UPointLightComponent>("PointLight");
+			if (Owner->GetRootComponent())
+				NewComp->SetupAttachment(Owner->GetRootComponent());
+			NewComp->RegisterComponent();
+		}
+		if (ImGui::Selectable("DirectionalLight Component"))
+		{
+			auto* NewComp = Owner->CreateDefaultSubobject<UDirectionalLightComponent>("DirectionalLight");
 			if (Owner->GetRootComponent())
 				NewComp->SetupAttachment(Owner->GetRootComponent());
 			NewComp->RegisterComponent();

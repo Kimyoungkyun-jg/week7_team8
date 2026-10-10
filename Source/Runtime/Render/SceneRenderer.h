@@ -21,7 +21,7 @@ public:
 	FSceneRenderer& operator=(const FSceneRenderer&) = delete;
 
 	// 가시성 검사 및 렌더 큐 수집
-	void InitViews(FRenderer* Renderer);
+	void InitViews(FRenderer* Renderer, const FAmbientLightRenderData& AmbientLight);
 
 	// Also used by Benchmark, which owns one persistent view result.
 	static void GatherRenderPackets(FScene& Scene, FSceneRenderData& Data, const FViewContext& View,
@@ -29,8 +29,9 @@ public:
 	static void PrepareDrawData(FRenderer* Renderer, const FSceneRenderData& Data);
 	const FRenderStats& GetRenderStats() const { return RenderData.RenderStats; }
 
-	// 불투명 장면은 GBuffer 패스로 렌더링한다.
-	bool RenderGBuffer(FRenderer* Renderer, const FDeferredViewTargets& Targets, uint32 Width, uint32 Height);
+	// 불투명 장면을 GBuffer 패스로 렌더링한다.
+	bool RenderDeferredOpaque(FRenderer* Renderer, const FDeferredViewTargets& Targets, uint32 Width, uint32 Height);
+	bool RenderForwardOpaque(FRenderer* Renderer, ELightingModel LightingModel);
 	void RenderDeferredLighting(FRenderer* Renderer, const FDeferredViewTargets& Targets);
 	void RenderToneMap(FRenderer* Renderer, const FDeferredViewTargets& Targets);
 

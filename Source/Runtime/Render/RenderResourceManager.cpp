@@ -34,6 +34,7 @@ constexpr FPipelineTableEntry PipelineTable[] =
 	{ EPSOType::ToneMap,                "Resources/Shader/ToneMapShader.hlsl",              D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, ERasterizerState::SolidNone, EBlendState::Opaque,       EDepthStencilState::Disabled },
 	{ EPSOType::FireBall,               "Resources/Shader/FireBallShader.hlsl",             D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, ERasterizerState::SolidNone, EBlendState::Additive,     EDepthStencilState::ReadOnly },
 	{ EPSOType::Billboard,              "Resources/Shader/BillboardShader.hlsl",            D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, ERasterizerState::SolidNone, EBlendState::AlphaBlend,   EDepthStencilState::ReadOnly },
+	{ EPSOType::StaticMesh_Forward,		"Resources/Shader/UberLit.hlsl",			D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST,			ERasterizerState::SolidBack, EBlendState::Opaque, EDepthStencilState::Default },
 };
 
 static_assert(sizeof(PipelineTable) / sizeof(PipelineTable[0]) == static_cast<size_t>(EPSOType::Count));
@@ -52,6 +53,45 @@ void FRenderResourceManager::InitPipelineStates()
 		State->BlendState = Entry.BlendState;
 		State->DepthStencilState = Entry.DepthStencilState;
 	}
+	const char* Names[] = { "LIGHTING_MODEL_GOURAUD", "LIGHTING_MODEL_LAMBERT", "LIGHTING_MODEL_PHONG" };
+	for (uint32 Index = 0; Index < 3; ++Index)
+	{
+		const D3D_SHADER_MACRO Defines[] = { { Names[Index], "1" }, { nullptr, nullptr } };
+		const FString Path = "Resources/Shader/UberLit.hlsl";
+		FShaderByteCode VSCode = RenderUtil::CompileShader(Path, "mainVS", EShaderType::Vertex, Defines);
+		FShaderByteCode PSCode = RenderUtil::CompileShader(Path, "mainPS", EShaderType::Pixel, Defines);
+		if (!VSCode.IsValid() || !PSCode.IsValid())
+		{
+			HTR_LOG(Error, "[Shader] forward variant compile failed: {}", Names[Index]);
+			continue;
+		}
+		auto VS = RenderCommand::CreateVertexShader(VSCode);
+		auto PS = RenderCommand::CreatePixelShader(PSCode);
+		if (!VS || !VS->IsValid() || !PS || !PS->IsValid())
+		{
+			continue;
+		}
+		FVertexShader* VSRaw = VS.get();
+		FPixelShader* PSRaw = PS.get();
+		const FString Key = Path + "#" + Names[Index];
+		VertexShaderMap[Key + "#VS"] = std::move(VS);
+		PixelShaderMap[Key + "#PS"] = std::move(PS);
+		ShaderProgramMap[Key] = MakeUnique<FShaderProgram>(VSRaw, PSRaw);
+	}
+}
+
+FShaderProgram* FRenderResourceManager::GetForwardShaderProgram(ELightingModel Model)
+{
+	const char* Name = "LIGHTING_MODEL_LAMBERT";
+	switch (Model)
+	{
+	case ELightingModel::Gouraud: Name = "LIGHTING_MODEL_GOURAUD"; break;
+	case ELightingModel::Phong: Name = "LIGHTING_MODEL_PHONG"; break;
+	default: break;
+	}
+	const FString Key = FString("Resources/Shader/UberLit.hlsl#") + Name;
+	if (auto* Found = Get().ShaderProgramMap.Find(Key)) return Found->get();
+	return nullptr;
 }
 
 FPipelineState* FRenderResourceManager::GetPSO(const EPSOType& InType)

@@ -29,6 +29,7 @@ class FRenderer
 public:
 	bool Init();
 	void DrawDeferredLighting(const FSceneView& View, const struct FDeferredViewTargets& Targets,
+		const FAmbientLightRenderData& AmbientLight, const TArray<FDirectionalLightRenderData>& DirectionalLights,
 		const TArray<FPointLightRenderData>& PointLights);
 	void DrawToneMap(const struct FDeferredViewTargets& Targets);
 
@@ -39,7 +40,10 @@ public:
 	void RenderAll(const FSceneView& View, const FRenderQueue& InQueue);
 
 	// 불투명 요소 렌더링
-	void RenderOpaque(const FSceneView& View, const FRenderQueue& InQueue, bool bGBufferPass = false);
+	void RenderDeferredOpaque(const FSceneView& View, const FRenderQueue& InQueue, bool bGBufferPass = false);
+	bool RenderForwardOpaque(const FSceneView& View, const FRenderQueue& InQueue,
+		const FAmbientLightRenderData& AmbientLight, const TArray<FDirectionalLightRenderData>& DirectionalLights,
+		const TArray<FPointLightRenderData>& PointLights, ELightingModel LightingModel);
 
 	// 반투명 요소 렌더링
 	void RenderTranslucent(const FSceneView& View, const FRenderQueue& InQueue);
@@ -61,6 +65,9 @@ private:
 	TUniquePtr<FConstantBuffer> PerObjectCB;
 	TUniquePtr<FConstantBuffer> ViewCB;
 	TUniquePtr<FConstantBuffer> DeferredLightCB;
+	TUniquePtr<FConstantBuffer> ForwardObjectCB;
+	TUniquePtr<FConstantBuffer> ForwardLightCB;
+	TUniquePtr<FConstantBuffer> ForwardMaterialCB;
 
 	// 오브젝트 상수 버퍼
 	TUniquePtr<FConstantBuffer> PerObjectSlotCB;
@@ -74,9 +81,19 @@ private:
 
 	FGPUOcclusion GPUOcclusion;
 
-	void DrawPackets(const FRenderQueue& InQueue, uint32 Begin, uint32 End, const FMatrix& ViewProjection, bool bGBufferPass = false);
+	void DrawPackets(const FRenderQueue& InQueue, uint32 Begin, uint32 End,
+		const FMatrix& ViewProjection, bool bGBufferPass = false);
 
 	void DrawStaticGroups(bool bGBufferPass = false);
+	void SortStaticGroups();
+	void DrawForwardStaticGroups(const FSceneView& View, const FPipelineState& PSO);
+	void DrawForwardPackets(const FSceneView& View, const FRenderQueue& InQueue, const FPipelineState& PSO);
+	bool SetupForwardPass(const FSceneView& View, const FAmbientLightRenderData& AmbientLight,
+		const TArray<FDirectionalLightRenderData>& DirectionalLights,
+		const TArray<FPointLightRenderData>& PointLights,
+		ELightingModel LightingModel, FPipelineState& OutPSO);
+	void BindForwardMaterial(UMaterial* Material, const FSceneView& View, const FPipelineState& PSO);
+	void DrawForwardObject(const FSceneView& View, const FMatrix& World, uint32 IndexCount, uint32 StartIndex);
 
 	void UpdatePerObjectConstants(const FMatrix& World);
 

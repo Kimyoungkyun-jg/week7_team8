@@ -25,6 +25,7 @@
 #include "Camera/CameraComponent.h"
 #include "Component/PointLightComponent.h"
 #include "GameFramework/Actor/LightActor.h"
+#include "GameFramework/Actor/SpotLight.h"
 #include "Component/ExponentialHeightFogComponent.h"
 
 #include "Asset/AssetManager.h"
@@ -588,6 +589,11 @@ void UEditorEngine::TickWorld(const float DeltaTime) {
 void UEditorEngine::RenderViewports() {
 	const bool bIsPIE = (PlayWorld != nullptr);
 	const EPIEMode Mode = EditorUI ? EditorUI->GetPIEMode() : EPIEMode::SelectedViewport;
+	const FEditorSettings& RenderSettings = SettingsPanel->GetSettings();
+	const FAmbientLightRenderData AmbientLight{
+		FVector4(RenderSettings.AmbientColor.X, RenderSettings.AmbientColor.Y,
+			RenderSettings.AmbientColor.Z, RenderSettings.AmbientIntensity)
+	};
 
 	for (int32 ViewIndex = 0; ViewIndex < AllViewportClients.Num(); ++ViewIndex) {
 		FEditorViewportClient *ViewClient = AllViewportClients[ViewIndex];
@@ -630,7 +636,7 @@ void UEditorEngine::RenderViewports() {
 					SceneView = GameClient->CalcSceneView(ViewRect);
 
 					FSceneRenderer SceneRenderer(CurrentWorld, SceneView, GameClient->GetRenderData());
-					SceneRenderer.InitViews(Renderer);
+					SceneRenderer.InitViews(Renderer, AmbientLight);
 
 
 					RenderGameFrame(GameClient, SceneView, SceneRenderer, bIsSIEMode);
@@ -644,7 +650,7 @@ void UEditorEngine::RenderViewports() {
 			SceneView = ViewClient->CalcSceneView(ViewRect);
 
 			FSceneRenderer SceneRenderer(CurrentWorld, SceneView, ViewClient->GetRenderData());
-			SceneRenderer.InitViews(Renderer);
+			SceneRenderer.InitViews(Renderer, AmbientLight);
 
 			RenderFrame(ViewClient, SceneView, SceneRenderer, CurrentWorld, bIsGameView);
 		}
@@ -677,7 +683,7 @@ void UEditorEngine::RenderViewports() {
 					FRect ViewRect{0.0f, 0.0f, static_cast<float>(Width), static_cast<float>(Height)};
 					FSceneView SceneView = GameClient->CalcSceneView(ViewRect);
 					FSceneRenderer SceneRenderer(Context.World(), SceneView, GameClient->GetRenderData());
-					SceneRenderer.InitViews(Renderer);
+					SceneRenderer.InitViews(Renderer, AmbientLight);
 					RenderGameFrame(GameClient, SceneView, SceneRenderer);
 				}
 			}
@@ -692,8 +698,16 @@ void UEditorEngine::RenderGameFrame(FGameViewportClient* GameClient, const FScen
 
 	FSceneRenderOptions Options;
 	Options.bEnableFXAA = SettingsPanel && SettingsPanel->GetSettings().bEnableFXAA;
+	if (SettingsPanel)
+	{
+		Options.RenderingPath = SettingsPanel->GetSettings().RenderingPath;
+		Options.LightingModel = SettingsPanel->GetSettings().LightingModel;
+	}
 	FDeferredViewTargets& Targets = GameClient->GetViewTargets();
-	if (!RenderSceneFrame(Targets, SceneView, SceneRenderer, GameClient->GetWorld(), Options))
+	const bool bRendered = Options.RenderingPath == ERenderingPath::Forward
+		? ForwardRender(Targets, SceneView, SceneRenderer, GameClient->GetWorld(), Options)
+		: DeferredRender(Targets, SceneView, SceneRenderer, GameClient->GetWorld(), Options);
+	if (!bRendered)
 		return;
 	FTexture2D* DepthTarget = Targets.Depth.get();
 	const uint32 Width = Targets.SceneColor->GetWidth();
@@ -718,7 +732,7 @@ void UEditorEngine::RenderGameFrame(FGameViewportClient* GameClient, const FScen
 	RenderCommand::EndRenderPass();
 }
 
-bool UEditorEngine::RenderSceneFrame(FDeferredViewTargets& Targets, const FSceneView& SceneView,
+bool UEditorEngine::DeferredRender(FDeferredViewTargets& Targets, const FSceneView& SceneView,
 	FSceneRenderer& SceneRenderer, UWorld* TargetWorld, const FSceneRenderOptions& Options)
 {
 	FTexture2D* ColorTarget = Targets.SceneColor.get();
@@ -733,7 +747,7 @@ bool UEditorEngine::RenderSceneFrame(FDeferredViewTargets& Targets, const FScene
 	// GBuffer -> HDR lighting -> skybox and tone mapping.
 	if (Options.bDrawPrimitives)
 	{
-		if (!SceneRenderer.RenderGBuffer(Renderer, Targets, Width, Height))
+		if (!SceneRenderer.RenderDeferredOpaque(Renderer, Targets, Width, Height))
 			return false;
 		RenderCommand::BeginRenderPass(Targets.LightingHDR.get(), nullptr, Width, Height);
 		SceneRenderer.RenderDeferredLighting(Renderer, Targets);
@@ -771,6 +785,57 @@ bool UEditorEngine::RenderSceneFrame(FDeferredViewTargets& Targets, const FScene
 		FXAARenderer->OnRender(SceneView, DepthTarget, ColorTarget))
 	{
 		// Both viewport types now exchange and bind the same final output target.
+		if (!Targets.SwapSceneColorAndBind(FXAARenderer->GetOutputTarget()))
+			RenderCommand::BindRenderPassNoClear(ColorTarget, DepthTarget, Width, Height);
+	}
+	return true;
+}
+
+bool UEditorEngine::ForwardRender(FDeferredViewTargets& Targets, const FSceneView& SceneView,
+	FSceneRenderer& SceneRenderer, UWorld* TargetWorld, const FSceneRenderOptions& Options)
+{
+	FTexture2D* ColorTarget = Targets.SceneColor.get();
+	FTexture2D* DepthTarget = Targets.Depth.get();
+	if (!TargetWorld || !Renderer || !ColorTarget || !DepthTarget)
+		return false;
+	const uint32 Width = ColorTarget->GetWidth();
+	const uint32 Height = ColorTarget->GetHeight();
+	if (!Width || !Height || !Targets.IsValidFor(Width, Height))
+		return false;
+
+	// Forward opaque shading writes lit linear color and depth in one mesh pass.
+	RenderCommand::BeginRenderPass(Targets.LightingHDR.get(), DepthTarget, Width, Height);
+	if (Options.bDrawPrimitives && !SceneRenderer.RenderForwardOpaque(Renderer, Options.LightingModel))
+	{
+		RenderCommand::EndRenderPass();
+		return false;
+	}
+	RenderCommand::EndRenderPass();
+
+	RenderCommand::BeginRenderPass(ColorTarget, nullptr, Width, Height);
+	if (SkyboxRenderer)
+		SkyboxRenderer->OnRender(SceneView.ViewProjectionMatrix, SceneView.ViewLocation);
+	if (Options.bDrawPrimitives)
+		SceneRenderer.RenderToneMap(Renderer, Targets);
+	RenderCommand::EndRenderPass();
+
+	RenderCommand::BindRenderPassNoClear(ColorTarget, DepthTarget, Width, Height);
+	if (Options.bDrawPrimitives)
+		RenderFireBall(TargetWorld, SceneView, DepthTarget, ColorTarget);
+	const bool bHasFog = Options.bDrawPrimitives && Options.bEnableFog &&
+		RenderHeightFog(TargetWorld, SceneView, DepthTarget, ColorTarget);
+	if (Options.bDrawPrimitives)
+	{
+		FConstantBuffer* FogConstants = HeightFogRenderer
+			? HeightFogRenderer->GetTranslucentFogConstants(bHasFog) : nullptr;
+		SceneRenderer.RenderTranslucent(Renderer, FogConstants);
+	}
+	RenderSceneText(TargetWorld, SceneView);
+	if (Options.bShowSceneDepth && SceneDepthRenderer)
+		SceneDepthRenderer->OnRender(SceneView, DepthTarget, ColorTarget, Options.SceneDepthRange);
+	if (Options.bEnableFXAA && !Options.bShowSceneDepth && FXAARenderer &&
+		FXAARenderer->OnRender(SceneView, DepthTarget, ColorTarget))
+	{
 		if (!Targets.SwapSceneColorAndBind(FXAARenderer->GetOutputTarget()))
 			RenderCommand::BindRenderPassNoClear(ColorTarget, DepthTarget, Width, Height);
 	}
@@ -954,12 +1019,19 @@ void UEditorEngine::RenderFrame(FEditorViewportClient *ViewClient,
 	Options.bDrawPrimitives = bIsPIE || SettingsPanel->GetSettings().bDrawPrimitives;
 	Options.bEnableFog = ViewClient->GetViewportMode() == EViewportMode::Solid;
 	Options.bEnableFXAA = SettingsPanel->GetSettings().bEnableFXAA;
+	Options.RenderingPath = SettingsPanel->GetSettings().RenderingPath;
+	Options.LightingModel = SettingsPanel->GetSettings().LightingModel;
 	Options.bShowSceneDepth = !bIsPIE && ViewClient->IsSceneDepth();
 	Options.SceneDepthRange = ViewClient->GetMaxRange();
-	
+
 	FDeferredViewTargets& Targets = ViewClient->GetViewTargets();
-	if (!RenderSceneFrame(Targets, SceneView, SceneRenderer, TargetWorld, Options))
+	const bool bRendered = Options.RenderingPath == ERenderingPath::Forward
+		? ForwardRender(Targets, SceneView, SceneRenderer, TargetWorld, Options)
+		: DeferredRender(Targets, SceneView, SceneRenderer, TargetWorld, Options);
+	
+	if (!bRendered)
 		return;
+	
 	FTexture2D* DepthTarget = Targets.Depth.get();
 	const uint32 Width = Targets.SceneColor->GetWidth();
 	const uint32 Height = Targets.SceneColor->GetHeight();
@@ -977,8 +1049,8 @@ void UEditorEngine::RenderFrame(FEditorViewportClient *ViewClient,
 		}
 
 		if (Gizmo->GetTarget()) {
-			if (ALightActor *LightActor =
-			Cast<ALightActor>(Gizmo->GetTarget()->GetOwner())) {
+			if (ASpotLight* LightActor =
+				Cast<ASpotLight>(Gizmo->GetTarget()->GetOwner())) {
 				LightActor->GetSpotLightComponent()->DrawDebug(LineBatcher.get());
 			}
 		}

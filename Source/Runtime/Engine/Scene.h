@@ -16,8 +16,11 @@ public:
 	void RemoveAllPrimitives();
 	void AddLight(class UPointLightComponent* Component);
 	void RemoveLight(class UPointLightComponent* Component);
+	void AddDirectionalLight(class UDirectionalLightComponent* Component);
+	void RemoveDirectionalLight(class UDirectionalLightComponent* Component);
 	void RemoveAllLights();
 	const TArray<class FLightSceneProxy*>& GetLights() const { return Lights; }
+	const TArray<class FDirectionalLightSceneProxy*>& GetDirectionalLights() const { return DirectionalLights; }
 
 	void UpdateAllTransforms();
 
@@ -29,6 +32,7 @@ public:
 
 	TArray<FPrimitiveSceneProxy*> Proxies;
 	TArray<class FLightSceneProxy*> Lights;
+	TArray<class FDirectionalLightSceneProxy*> DirectionalLights;
 	TArray<FPrimitiveSceneProxy*> DirtyProxies;
 	TArray<FPrimitiveSceneProxy*> RenderStateDirtyProxies;
 	TArray<FAABB> PrimitiveBounds;

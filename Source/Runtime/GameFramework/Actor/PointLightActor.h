@@ -1,20 +1,19 @@
 #pragma once
 
-#include "GameFramework/Actor.h"
-#include "Component/BillboardComponent.h"
+#include "GameFramework/Actor/LightActor.h"
 #include "Component/PointLightComponent.h"
 
-class APointLightActor : public AActor
+class APointLightActor : public ALightActor
 {
-	DECLARE_CLASS(APointLightActor, AActor)
+	DECLARE_CLASS(APointLightActor, ALightActor)
 	REFLECT_START(APointLightActor)
 	REFLECT_END()
 
 public:
 	APointLightActor();
 	UPointLightComponent* GetPointLightComponent() const { return PointLightComponent; }
+	USceneComponent* GetLightComponent() const override { return PointLightComponent; }
 
 private:
-	UBillboardComponent* BillboardComponent = nullptr;
 	UPointLightComponent* PointLightComponent = nullptr;
 };

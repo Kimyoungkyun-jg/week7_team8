@@ -21,6 +21,7 @@ enum class EPSOType : uint8
 	ToneMap,
 	FireBall,
 	Billboard,
+	StaticMesh_Forward,
 	Count
 };
 
@@ -44,6 +45,7 @@ public:
 	static FShaderProgram* GetShaderProgram(const FString& InPath);
 
 	static FPipelineState* GetPSO(const EPSOType& InType);
+	static FShaderProgram* GetForwardShaderProgram(ELightingModel Model);
 private:
 	
 	void LoadOrCompileShader(const FString& Path);

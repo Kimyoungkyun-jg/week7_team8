@@ -29,9 +29,14 @@ namespace
 		FVector4 CameraPosition; // W: perspective projection
 		FVector4 CameraForward;
 		FVector4 ViewportLightCount;
+		FAmbientLightRenderData Ambient;
+		uint32 DirectionalCounts[4];
+		FDirectionalLightRenderData DirectionalLights[MaxDirectionalLights];
 		FPointLightRenderData PointLights[MaxDeferredPointLights];
 	};
-	static_assert(sizeof(FPointLightRenderData) == 32);
+	static_assert(sizeof(FPointLightRenderData) == 48);
+	static_assert(offsetof(FDeferredLightConstants, DirectionalLights) == 144);
+	static_assert(offsetof(FDeferredLightConstants, PointLights) == 1168);
 	static_assert(sizeof(FDeferredLightConstants) % 16 == 0);
 	// VSSetConstantBuffers1의 오프셋은 16개 상수(256바이트) 단위여야 하므로 오브젝트마다 256바이트 칸을 쓴다.
 	constexpr uint32 PerObjectSlotConstants = 16;
@@ -60,6 +65,9 @@ bool FRenderer::Init()
 	PerObjectCB = RenderCommand::CreateConstantBuffer(sizeof(FPerObjectConstants));
 	ViewCB = RenderCommand::CreateConstantBuffer(sizeof(FMatrix));
 	DeferredLightCB = RenderCommand::CreateConstantBuffer(sizeof(FDeferredLightConstants));
+	ForwardObjectCB = RenderCommand::CreateConstantBuffer(sizeof(FForwardObjectConstants));
+	ForwardLightCB = RenderCommand::CreateConstantBuffer(sizeof(FForwardLightingConstants));
+	ForwardMaterialCB = RenderCommand::CreateConstantBuffer(sizeof(FForwardMaterialConstants));
 
 	GPUOcclusion.Init();   // 실패해도 오클루전만 못 쓸 뿐 렌더링은 된다
 
@@ -97,19 +105,99 @@ void FRenderer::SetupView(const FSceneView& View)
 // 전체 렌더 큐 렌더링
 void FRenderer::RenderAll(const FSceneView& View, const FRenderQueue& InQueue)
 {
-	RenderOpaque(View, InQueue);
+	RenderDeferredOpaque(View, InQueue);
 	RenderTranslucent(View, InQueue);
 }
 
 // 불투명 요소 렌더링
-void FRenderer::RenderOpaque(const FSceneView& View, const FRenderQueue& InQueue, bool bGBufferPass)
+void FRenderer::RenderDeferredOpaque(const FSceneView& View, const FRenderQueue& InQueue, bool bGBufferPass)
 {
 	SetupView(View);
 	DrawStaticGroups(bGBufferPass);
 	DrawPackets(InQueue, 0, InQueue.GetFirstTranslucentIndex(), View.ViewProjectionMatrix, bGBufferPass);
 }
 
+bool FRenderer::RenderForwardOpaque(const FSceneView& View, const FRenderQueue& InQueue,
+	const FAmbientLightRenderData& AmbientLight,
+	const TArray<FDirectionalLightRenderData>& DirectionalLights,
+	const TArray<FPointLightRenderData>& PointLights, ELightingModel LightingModel)
+{
+	FPipelineState PSO;
+	if (!SetupForwardPass(View, AmbientLight, DirectionalLights, PointLights, LightingModel, PSO))
+		return false;
+
+	DrawForwardStaticGroups(View, PSO);
+	DrawForwardPackets(View, InQueue, PSO);
+
+	return true;
+}
+
+bool FRenderer::SetupForwardPass(const FSceneView& View,
+	const FAmbientLightRenderData& AmbientLight,
+	const TArray<FDirectionalLightRenderData>& DirectionalLights,
+	const TArray<FPointLightRenderData>& PointLights, ELightingModel LightingModel,
+	FPipelineState& OutPSO)
+{
+	FPipelineState* BasePSO = FRenderResourceManager::GetPSO(EPSOType::StaticMesh_Forward);
+	FShaderProgram* Program = FRenderResourceManager::GetForwardShaderProgram(LightingModel);
+	if (!BasePSO || !Program || !ForwardObjectCB || !ForwardLightCB || !ForwardMaterialCB)
+		return false;
+	OutPSO = *BasePSO;
+	OutPSO.Shader = Program;
+
+	FForwardLightingConstants Lighting{};
+	Lighting.Ambient = AmbientLight;
+	const uint32 DirectionalCount = std::min<uint32>(static_cast<uint32>(DirectionalLights.Num()), MaxDirectionalLights);
+	Lighting.LightCounts[2] = DirectionalCount;
+	for (uint32 Index = 0; Index < DirectionalCount; ++Index)
+		Lighting.DirectionalLights[Index] = DirectionalLights[Index];
+	Lighting.CameraPosition = FVector4(View.ViewLocation.X, View.ViewLocation.Y, View.ViewLocation.Z, 1.0f);
+	const uint32 Count = std::min<uint32>(static_cast<uint32>(PointLights.Num()), MaxForwardPointLights);
+	Lighting.LightCounts[0] = Count;
+	for (uint32 Index = 0; Index < Count; ++Index)
+		Lighting.PointLights[Index] = PointLights[Index];
+	RenderCommand::UpdateBufferData(ForwardLightCB.get(), &Lighting, sizeof(Lighting));
+	SetupView(View);
+	return true;
+}
+
+void FRenderer::BindForwardMaterial(UMaterial* Material, const FSceneView& View, const FPipelineState& PSO)
+{
+	RenderCommand::BindPipelineState(PSO);
+	RenderCommand::BindConstantBuffer(1, ForwardLightCB.get(),
+		EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
+	if (View.bIsWireframe)
+		RenderCommand::SetRasterizerState(ERasterizerState::Wireframe);
+	for (size_t Index = 0; Index < Material->Textures.size(); ++Index)
+		RenderCommand::BindShaderResource(static_cast<uint32>(Index), Material->Textures[Index], EShaderBindFlagBits::Pixel);
+	RenderCommand::BindSamplerState(0, Material->SamplerState, EShaderBindFlagBits::Pixel);
+
+	FForwardMaterialConstants Params{};
+	Params.BaseColor = Material->BaseColor;
+	Params.SurfaceParams = FVector4(0.25f, 32.0f, 0.0f, 0.0f);
+	const FVector2 UVOffset = Material->UVScrollSpeed * EngineTimer::GetTotalTime();
+	Params.UVTransform = FVector4(UVOffset.X, UVOffset.Y, 1.0f, 1.0f);
+	RenderCommand::UpdateBufferData(ForwardMaterialCB.get(), &Params, sizeof(Params));
+	RenderCommand::BindConstantBuffer(2, ForwardMaterialCB.get(),
+		EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
+}
+
+void FRenderer::DrawForwardObject(const FSceneView& View, const FMatrix& World,
+	uint32 IndexCount, uint32 StartIndex)
+{
+	FForwardObjectConstants Object{};
+	Object.World = World;
+	Object.View = View.ViewMatrix;
+	Object.Projection = View.ProjectionMatrix;
+	Object.NormalMatrix = World.Inverse().GetTransposed();
+	RenderCommand::UpdateBufferData(ForwardObjectCB.get(), &Object, sizeof(Object));
+	RenderCommand::BindConstantBuffer(0, ForwardObjectCB.get(), EShaderBindFlagBits::Vertex);
+	RenderCommand::DrawIndexed(IndexCount, StartIndex);
+}
+
 void FRenderer::DrawDeferredLighting(const FSceneView& View, const FDeferredViewTargets& Targets,
+	const FAmbientLightRenderData& AmbientLight,
+	const TArray<FDirectionalLightRenderData>& DirectionalLights,
 	const TArray<FPointLightRenderData>& PointLights)
 {
 	FPipelineState* PSO = FRenderResourceManager::GetPSO(EPSOType::DeferredLighting);
@@ -120,6 +208,11 @@ void FRenderer::DrawDeferredLighting(const FSceneView& View, const FDeferredView
 	Constants.CameraPosition = FVector4(View.ViewLocation.X, View.ViewLocation.Y,
 		View.ViewLocation.Z, View.bIsPerspective ? 1.0f : 0.0f);
 	Constants.CameraForward = FVector4(View.ViewForward.X, View.ViewForward.Y, View.ViewForward.Z, 0.0f);
+	Constants.Ambient = AmbientLight;
+	const uint32 DirectionalCount = std::min<uint32>(static_cast<uint32>(DirectionalLights.Num()), MaxDirectionalLights);
+	Constants.DirectionalCounts[0] = DirectionalCount;
+	for (uint32 Index = 0; Index < DirectionalCount; ++Index)
+		Constants.DirectionalLights[Index] = DirectionalLights[Index];
 	const uint32 LightCount = std::min<uint32>(static_cast<uint32>(PointLights.Num()), MaxDeferredPointLights);
 	Constants.ViewportLightCount = FVector4(
 		static_cast<float>(Targets.SceneColor->GetWidth()),
@@ -174,16 +267,60 @@ void FRenderer::RenderTranslucent(const FSceneView& View, const FRenderQueue& In
 	StaticGroups.clear();
 }
 
+void FRenderer::SortStaticGroups()
+{
+	std::erase_if(StaticGroups, [](const FStaticDrawGroup* Group) { return Group->Items.empty(); });
+	std::sort(StaticGroups.begin(), StaticGroups.end(),
+		[](const FStaticDrawGroup* A, const FStaticDrawGroup* B) { return MakeGroupKey(*A) < MakeGroupKey(*B); });
+}
+
+void FRenderer::DrawForwardStaticGroups(const FSceneView& View, const FPipelineState& PSO)
+{
+	SortStaticGroups();
+	SCOPE_CYCLE_COUNTER(STAT_DrawRenderPackets);
+	UMaterial* BoundMaterial = nullptr;
+	for (const FStaticDrawGroup* Group : StaticGroups)
+	{
+		RenderCommand::BindMesh(Group->Mesh, Group->LODIndex);
+		if (Group->Material != BoundMaterial)
+		{
+			BoundMaterial = Group->Material;
+			BindForwardMaterial(BoundMaterial, View, PSO);
+		}
+		for (const FStaticDrawItem& Item : Group->Items)
+			DrawForwardObject(View, Item.Proxy->GetLocalToWorld(), Item.IndexCount, Item.StartIndex);
+	}
+}
+
+void FRenderer::DrawForwardPackets(const FSceneView& View, const FRenderQueue& InQueue,
+	const FPipelineState& PSO)
+{
+	SCOPE_CYCLE_COUNTER(STAT_DrawRenderPackets);
+	UStaticMesh* LastMesh = nullptr;
+	UMaterial* LastMaterial = nullptr;
+	uint8 LastLODIndex = 0;
+	for (uint32 Index = 0; Index < InQueue.GetFirstTranslucentIndex(); ++Index)
+	{
+		const FRenderPacket& Packet = InQueue[Index];
+		if (Packet.Mesh != LastMesh || Packet.LODIndex != LastLODIndex)
+			RenderCommand::BindMesh(Packet.Mesh, Packet.LODIndex);
+		if (Packet.Material != LastMaterial || Packet.MaterialParamData)
+			BindForwardMaterial(Packet.Material, View, PSO);
+		DrawForwardObject(View, GetPacketWorld(Packet),
+			Packet.IndexCount ? Packet.IndexCount : Packet.Mesh->GetIndexBuffer(Packet.LODIndex)->GetIndexCount(),
+			Packet.StartIndex);
+		LastMesh = Packet.Mesh;
+		LastMaterial = Packet.Material;
+		LastLODIndex = Packet.LODIndex;
+	}
+}
+
 // 스태틱 메시 묶음을 그린다
 void FRenderer::DrawStaticGroups(bool bGBufferPass)
 {
 	if (StaticGroups.empty())
 		return;
-
-	// 스태틱 메시 묶음 정렬
-	std::erase_if(StaticGroups, [](const FStaticDrawGroup* Group) { return Group->Items.empty(); });
-	std::sort(StaticGroups.begin(), StaticGroups.end(),
-		[](const FStaticDrawGroup* A, const FStaticDrawGroup* B) { return MakeGroupKey(*A) < MakeGroupKey(*B); });
+	SortStaticGroups();
 
 	SCOPE_CYCLE_COUNTER(STAT_DrawRenderPackets);
 	RenderCommand::BindConstantBuffer(0, ViewCB.get(), EShaderBindFlagBits::Vertex);
@@ -219,7 +356,8 @@ void FRenderer::DrawStaticGroups(bool bGBufferPass)
 }
 
 // 정렬된 패킷 중 [Begin, End) 범위를 그린다
-void FRenderer::DrawPackets(const FRenderQueue& InQueue, uint32 Begin, uint32 End, const FMatrix& ViewProjection, bool bGBufferPass)
+void FRenderer::DrawPackets(const FRenderQueue& InQueue, uint32 Begin, uint32 End,
+	const FMatrix& ViewProjection, bool bGBufferPass)
 {
 	SCOPE_CYCLE_COUNTER(STAT_DrawRenderPackets);
 
@@ -235,9 +373,8 @@ void FRenderer::DrawPackets(const FRenderQueue& InQueue, uint32 Begin, uint32 En
 		if (RenderPacket.Mesh != LastMesh || RenderPacket.LODIndex != LastLODIndex) {
 			RenderCommand::BindMesh(RenderPacket.Mesh, RenderPacket.LODIndex);
 		}
-		if (RenderPacket.Material != LastMaterial) {
+		if (RenderPacket.Material != LastMaterial)
 			BindMaterial(RenderPacket.Material, bCurrentWireframe, bGBufferPass);
-		}
 		if (RenderPacket.Material != LastMaterial || RenderPacket.MaterialParamData)
 			UpdateMaterialParams(RenderPacket);
 		if (bUsePerObjectSlots && RenderPacket.Slot != InvalidObjectSlot)

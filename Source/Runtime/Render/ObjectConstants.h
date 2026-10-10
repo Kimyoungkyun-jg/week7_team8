@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Math/Matrix.h"
+#include "Math/Vector4.h"
 
 constexpr uint32 ObjectSlotBytes = 256;
 
@@ -20,4 +21,24 @@ inline FPerObjectConstants MakePerObjectConstants(const FMatrix& World)
 
 static_assert(sizeof(FPerObjectConstants) == sizeof(FMatrix) * 2);
 static_assert(sizeof(FPerObjectConstants) <= ObjectSlotBytes);
+
+// UberLit.hlsl PerObject (b0) and MaterialParams (b2).
+struct FForwardObjectConstants
+{
+	FMatrix World;
+	FMatrix View;
+	FMatrix Projection;
+	FMatrix NormalMatrix;
+};
+
+struct FForwardMaterialConstants
+{
+	FVector4 BaseColor;
+	FVector4 Emissive;
+	FVector4 SurfaceParams;
+	FVector4 UVTransform;
+};
+
+static_assert(sizeof(FForwardObjectConstants) == 256);
+static_assert(sizeof(FForwardMaterialConstants) == 64);
 

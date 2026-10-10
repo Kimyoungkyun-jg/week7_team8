@@ -8,6 +8,7 @@
 #include "GameFramework/Actor.h"
 #include "UObject/UObjectHash.h"
 #include "GameFramework/Actor/StaticMeshActor.h"
+#include "GameFramework/Actor/SpotLight.h"
 #include "TypeSerializer.h"
 #include "Asset/AssetManager.h"
 #include "Camera/CameraActor.h"
@@ -188,7 +189,21 @@ bool FJsonArchive::LoadWorld(UWorld* World, const FString& Path)
 		if (!ActorJson.contains("Class") || !ActorJson["Class"].is_string())
 			return false;
 
-		UClass* Class = FindClass(ActorJson["Class"].get<FString>());
+		const FString ClassName = ActorJson["Class"].get<FString>();
+		UClass* Class = FindClass(ClassName);
+		// Older scenes stored spot lights as ALightActor. Keep their component and icon.
+		if (ClassName == "ALightActor" && ActorJson.contains("Components") &&
+			ActorJson["Components"].is_array())
+		{
+			for (const json& ComponentJson : ActorJson["Components"])
+			{
+				if (ComponentJson.is_object() && ComponentJson.value("Class", FString{}) == "USpotLightComponent")
+				{
+					Class = ASpotLight::StaticClass();
+					break;
+				}
+			}
+		}
 		if (!Class || !Class->IsChildOf(AActor::StaticClass()))
 			return false;
 

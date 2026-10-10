@@ -2,6 +2,7 @@
 #include "Scene.h"
 #include "Engine/LightSceneProxy.h"
 #include "Component/PointLightComponent.h"
+#include "Component/DirectionalLightComponent.h"
 
 FScene::~FScene()
 {
@@ -27,11 +28,33 @@ void FScene::RemoveLight(UPointLightComponent* Component)
 	}
 }
 
+void FScene::AddDirectionalLight(UDirectionalLightComponent* Component)
+{
+	if (!Component) return;
+	for (FDirectionalLightSceneProxy* Proxy : DirectionalLights)
+		if (Proxy->GetComponent() == Component) return;
+	DirectionalLights.Add(new FDirectionalLightSceneProxy(Component));
+}
+
+void FScene::RemoveDirectionalLight(UDirectionalLightComponent* Component)
+{
+	for (uint32 Index = 0; Index < DirectionalLights.Num(); ++Index)
+	{
+		if (DirectionalLights[Index]->GetComponent() != Component) continue;
+		delete DirectionalLights[Index];
+		DirectionalLights.RemoveAtSwap(Index);
+		return;
+	}
+}
+
 void FScene::RemoveAllLights()
 {
 	for (FLightSceneProxy* Proxy : Lights)
 		delete Proxy;
 	Lights.Reset();
+	for (FDirectionalLightSceneProxy* Proxy : DirectionalLights)
+		delete Proxy;
+	DirectionalLights.Reset();
 }
 
 void FScene::AddPrimitive(UPrimitiveComponent* Component)
@@ -107,6 +130,8 @@ void FScene::RemoveAllPrimitives()
 void FScene::UpdateAllTransforms()
 {
 	for (FLightSceneProxy* Proxy : Lights)
+		Proxy->Update();
+	for (FDirectionalLightSceneProxy* Proxy : DirectionalLights)
 		Proxy->Update();
 
 	for (FPrimitiveSceneProxy* Proxy : RenderStateDirtyProxies)

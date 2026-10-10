@@ -4,6 +4,7 @@
 #include "Render/ObjectConstants.h"
 #include "Engine/PrimitiveSceneProxy.h"
 #include "Engine/LightSceneProxy.h"
+#include "Render/LightRenderData.h"
 #include <algorithm>
 #include <iterator>
 #include <vector>
@@ -40,7 +41,11 @@ struct FSceneRenderData
 	TArray<FLODSelectionInput> LODInputs;
 	TArray<uint8> SelectedLODs;
 	TArray<FGatherChunk> GatherChunks;
+
 	TArray<FPerObjectConstants> ObjectConstants;
+
+	FAmbientLightRenderData AmbientLight{ FVector4(0.5f, 0.5f, 0.5f, 1.0f) };
+	TArray<FDirectionalLightRenderData> VisibleDirectionalLights;
 	TArray<FPointLightRenderData> VisiblePointLights;
 
 	void ResetScene()
@@ -61,6 +66,8 @@ struct FSceneRenderData
 		LODInputs.Reset();
 		SelectedLODs.Reset();
 		ObjectConstants.Reset();
+		AmbientLight = FAmbientLightRenderData{ FVector4(0.5f, 0.5f, 0.5f, 1.0f) };
+		VisibleDirectionalLights.Reset();
 		VisiblePointLights.Reset();
 		for (FGatherChunk& Chunk : GatherChunks)
 		{
