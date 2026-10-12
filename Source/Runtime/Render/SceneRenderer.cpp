@@ -96,7 +96,7 @@ void FSceneRenderer::InitViews(FRenderer* Renderer, const FAmbientLightRenderDat
 bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Renderer, FSceneViewTargets& Targets,
 	const FSceneRenderOptions& Options, FSkyboxRenderer* Skybox)
 {
-	if (!World || !Renderer || !Targets.SceneColor)
+	if (!World || !Renderer || !Targets.SceneColor || !Targets.Depth)
 		return false;
 	const uint32 Width = Targets.SceneColor->GetWidth();
 	const uint32 Height = Targets.SceneColor->GetHeight();
@@ -104,16 +104,27 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 		return false;
 
 	bCorePassSucceeded = true;
+	NormalRoughnessRef = {};
+
 	const auto SceneColor = Graph.ImportTexture(Targets.SceneColor.get(), "SceneColor");
-	const auto LightingHDR = Graph.ImportTexture(Targets.LightingHDR.get(), "LightingHDR");
-	const auto BaseColor = Graph.ImportTexture(Targets.BaseColorMetallic.get(), "BaseColorMetallic");
-	const auto Normal = Graph.ImportTexture(Targets.NormalRoughness.get(), "NormalRoughness");
 	const auto Depth = Graph.ImportTexture(Targets.Depth.get(), "SceneDepth");
-	if (!SceneColor || !LightingHDR || !BaseColor || !Normal || !Depth)
+	if (!SceneColor || !Depth)
+		return false;
+
+	const FRenderGraphTextureDesc HDRDesc{ Width, Height, DXGI_FORMAT_R16G16B16A16_FLOAT };
+	const auto LightingHDR = Graph.CreateTexture(HDRDesc, "LightingHDR");
+	if (!LightingHDR)
 		return false;
 
 	if (Options.RenderingPath == ERenderingPath::Deferred)
 	{
+		const FRenderGraphTextureDesc GBufferDesc{ Width, Height, DXGI_FORMAT_R8G8B8A8_UNORM };
+		const auto BaseColor = Graph.CreateTexture(GBufferDesc, "BaseColorMetallic");
+		const auto Normal = Graph.CreateTexture(HDRDesc, "NormalRoughness");
+		if (!BaseColor || !Normal)
+			return false;
+		NormalRoughnessRef = Normal;
+
 		if (Options.bDrawPrimitives)
 		{
 			FRenderGraphRasterPassDesc GBuffer{};
@@ -135,9 +146,12 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 			Lighting.ColorAttachments = {
 				{ LightingHDR, ERenderGraphLoadAction::Clear, { 0.0f, 0.0f, 0.0f, 1.0f } }
 			};
-			if (!Graph.AddRasterPass(std::move(Lighting), [this, Renderer, &Targets]
+			if (!Graph.AddRasterPass(std::move(Lighting), [this, Renderer, &Graph, BaseColor, Normal, Depth, Width, Height]
 				{
-					Renderer->DrawDeferredLighting(View, Targets, RenderData.AmbientLight,
+					Renderer->DrawDeferredLighting(View,
+						Graph.Resolve(BaseColor), Graph.Resolve(Normal), Graph.Resolve(Depth),
+						Width, Height,
+						RenderData.AmbientLight,
 						RenderData.VisibleDirectionalLights, RenderData.VisiblePointLights,
 						RenderData.VisibleSpotLights,
 						RenderData.bHasSkyLight ? &RenderData.SkyLight : nullptr);
@@ -159,8 +173,12 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 			{ LightingHDR, ERenderGraphLoadAction::Clear, { 0.0f, 0.0f, 0.0f, 1.0f } }
 		};
 		if (Options.bShowWorldNormal)
+		{
+			const auto Normal = Graph.CreateTexture(HDRDesc, "NormalRoughness");
+			NormalRoughnessRef = Normal;
 			Forward.ColorAttachments.push_back(
 				{ Normal, ERenderGraphLoadAction::Clear, { 0.0f, 0.0f, 0.0f, 1.0f } });
+		}
 		Forward.DepthAttachment = { Depth, ERenderGraphLoadAction::Clear, 1.0f, 0 };
 		if (!Graph.AddRasterPass(std::move(Forward), [this, Renderer, &Options]
 			{
@@ -190,15 +208,16 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 		ToneMap.Name = "ToneMap";
 		ToneMap.ReadTextures = { LightingHDR, Depth };
 		ToneMap.ColorAttachments = { { SceneColor, ERenderGraphLoadAction::Load } };
-		if (!Graph.AddRasterPass(std::move(ToneMap), [this, Renderer, &Targets]
+		if (!Graph.AddRasterPass(std::move(ToneMap), [this, Renderer, &Graph, LightingHDR, Depth]
 			{
 				if (bCorePassSucceeded)
-					Renderer->DrawToneMap(Targets);
+					Renderer->DrawToneMap(Graph.Resolve(LightingHDR), Graph.Resolve(Depth));
 			})) return false;
 	}
 
 	return true;
 }
+
 
 // 반투명 렌더링
 void FSceneRenderer::RenderTranslucent(FRenderer* Renderer, FConstantBuffer* FogConstants)

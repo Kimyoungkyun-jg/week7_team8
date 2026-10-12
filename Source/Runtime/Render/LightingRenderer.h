@@ -9,6 +9,7 @@
 
 class FMeshDrawRenderer;
 class FRenderQueue;
+class FTexture2D;
 struct FSceneView;
 struct FSceneViewTargets;
 
@@ -26,7 +27,8 @@ public:
 		const TArray<FSpotLightRenderData>& SpotLights, ELightingModel LightingModel,
 		bool bEnableClusteredLightCulling, const FSkyLightRenderData* SkyLight,
 		FMeshDrawRenderer& MeshDrawer);
-	void DrawDeferredLighting(const FSceneView& View, const FSceneViewTargets& Targets,
+	void DrawDeferredLighting(const FSceneView& View, FTexture2D* BaseColor, FTexture2D* Normal,
+		FTexture2D* Depth, uint32 ViewportWidth, uint32 ViewportHeight,
 		const FAmbientLightRenderData& AmbientLight,
 		const TArray<FDirectionalLightRenderData>& DirectionalLights,
 		const TArray<FPointLightRenderData>& PointLights,

@@ -17,11 +17,12 @@ public:
 	bool Init();
 	void PrepareSkyLight(const FSkyLightRenderData& SkyLight);
 	const FSkyLightEnvironment* GetSkyLightEnvironment(const FString& SourcePath) const;
-	void DrawDeferredLighting(const FSceneView& View, const struct FSceneViewTargets& Targets,
+	void DrawDeferredLighting(const FSceneView& View, FTexture2D* BaseColor, FTexture2D* Normal,
+		FTexture2D* Depth, uint32 ViewportWidth, uint32 ViewportHeight,
 		const FAmbientLightRenderData& AmbientLight, const TArray<FDirectionalLightRenderData>& DirectionalLights,
 		const TArray<FPointLightRenderData>& PointLights, const TArray<FSpotLightRenderData>& SpotLights,
 		const FSkyLightRenderData* SkyLight = nullptr);
-	void DrawToneMap(const struct FSceneViewTargets& Targets);
+	void DrawToneMap(FTexture2D* LightingHDR, FTexture2D* Depth);
 
 	// 시점 상수 버퍼 및 렌더링 상태 설정
 	void SetupView(const FSceneView& View);

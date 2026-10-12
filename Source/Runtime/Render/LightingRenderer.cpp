@@ -180,7 +180,8 @@ bool FLightingRenderer::RenderForwardOpaque(const FSceneView& View, const FRende
 }
 
 
-void FLightingRenderer::DrawDeferredLighting(const FSceneView& View, const FSceneViewTargets& Targets,
+void FLightingRenderer::DrawDeferredLighting(const FSceneView& View, FTexture2D* BaseColor,
+	FTexture2D* Normal, FTexture2D* Depth, uint32 ViewportWidth, uint32 ViewportHeight,
 	const FAmbientLightRenderData& AmbientLight,
 	const TArray<FDirectionalLightRenderData>& DirectionalLights,
 	const TArray<FPointLightRenderData>& PointLights,
@@ -207,17 +208,17 @@ void FLightingRenderer::DrawDeferredLighting(const FSceneView& View, const FScen
 		return;
 	}
 	Constants.ViewportPass = FVector4(
-		static_cast<float>(Targets.SceneColor->GetWidth()),
-		static_cast<float>(Targets.SceneColor->GetHeight()),
+		static_cast<float>(ViewportWidth),
+		static_cast<float>(ViewportHeight),
 		0.0f, 0.0f);
 	RenderCommand::UpdateBufferData(DeferredLightCB.get(), &Constants, sizeof(Constants));
 
 	RenderCommand::BindPipelineState(*PSO);
 	RenderCommand::BindConstantBuffer(0, DeferredLightCB.get(), EShaderBindFlagBits::Pixel);
 	RenderCommand::BindVertexBuffer(nullptr);
-	RenderCommand::BindShaderResource(0, Targets.BaseColorMetallic.get(), EShaderBindFlagBits::Pixel);
-	RenderCommand::BindShaderResource(1, Targets.NormalRoughness.get(), EShaderBindFlagBits::Pixel);
-	RenderCommand::BindShaderResource(2, Targets.Depth.get(), EShaderBindFlagBits::Pixel);
+	RenderCommand::BindShaderResource(0, BaseColor, EShaderBindFlagBits::Pixel);
+	RenderCommand::BindShaderResource(1, Normal, EShaderBindFlagBits::Pixel);
+	RenderCommand::BindShaderResource(2, Depth, EShaderBindFlagBits::Pixel);
 	RenderCommand::BindShaderResource(DeferredSceneLightSlot,
 		(PointLights.IsEmpty() && DirectionalLights.IsEmpty() && SpotLights.IsEmpty())
 			? nullptr : SceneLightBuffer.get(),

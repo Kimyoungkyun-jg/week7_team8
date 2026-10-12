@@ -71,17 +71,18 @@ bool FRenderer::RenderForwardOpaque(const FSceneView& View, const FRenderQueue& 
 		MeshDrawer);
 }
 
-void FRenderer::DrawDeferredLighting(const FSceneView& View, const FSceneViewTargets& Targets,
+void FRenderer::DrawDeferredLighting(const FSceneView& View, FTexture2D* BaseColor, FTexture2D* Normal,
+	FTexture2D* Depth, uint32 ViewportWidth, uint32 ViewportHeight,
 	const FAmbientLightRenderData& AmbientLight,
 	const TArray<FDirectionalLightRenderData>& DirectionalLights,
 	const TArray<FPointLightRenderData>& PointLights,
 	const TArray<FSpotLightRenderData>& SpotLights, const FSkyLightRenderData* SkyLight)
 {
-	Lighting.DrawDeferredLighting(View, Targets, AmbientLight, DirectionalLights, PointLights,
-		SpotLights, SkyLight);
+	Lighting.DrawDeferredLighting(View, BaseColor, Normal, Depth, ViewportWidth, ViewportHeight,
+		AmbientLight, DirectionalLights, PointLights, SpotLights, SkyLight);
 }
 
-void FRenderer::DrawToneMap(const FSceneViewTargets& Targets)
+void FRenderer::DrawToneMap(FTexture2D* LightingHDR, FTexture2D* Depth)
 {
 	FPipelineState* PSO = FRenderResourceManager::GetPSO(EPSOType::ToneMap);
 	if (!PSO || !PSO->Shader || !PSO->Shader->VertexShader || !PSO->Shader->PixelShader)
@@ -89,8 +90,8 @@ void FRenderer::DrawToneMap(const FSceneViewTargets& Targets)
 
 	RenderCommand::BindPipelineState(*PSO);
 	RenderCommand::BindVertexBuffer(nullptr);
-	RenderCommand::BindShaderResource(0, Targets.LightingHDR.get(), EShaderBindFlagBits::Pixel);
-	RenderCommand::BindShaderResource(1, Targets.Depth.get(), EShaderBindFlagBits::Pixel);
+	RenderCommand::BindShaderResource(0, LightingHDR, EShaderBindFlagBits::Pixel);
+	RenderCommand::BindShaderResource(1, Depth, EShaderBindFlagBits::Pixel);
 	RenderCommand::Draw(3);
 
 	RenderCommand::UnbindShaderResources(0, 2, EShaderBindFlagBits::Pixel);

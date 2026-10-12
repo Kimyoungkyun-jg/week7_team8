@@ -5,13 +5,13 @@
 #include "Render/RenderPacket.h"
 #include "Render/SceneRenderData.h"
 #include "Render/SceneRenderOptions.h"
+#include "Render/RenderGraph/RenderGraph.h"
 
 class UWorld;
 class FScene;
 class FRenderer;
 class FConstantBuffer;
 class FSkyboxRenderer;
-class FRenderGraphBuilder;
 struct FSceneViewTargets;
 
 // 씬 렌더링 조율자
@@ -36,6 +36,7 @@ public:
 	bool AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Renderer, FSceneViewTargets& Targets,
 		const FSceneRenderOptions& Options, FSkyboxRenderer* Skybox);
 	bool DidCorePassSucceed() const { return bCorePassSucceeded; }
+	FRenderGraphTextureRef GetNormalRoughnessRef() const { return NormalRoughnessRef; }
 
 	// 반투명 렌더링
 	void RenderTranslucent(FRenderer* Renderer, FConstantBuffer* FogConstants = nullptr);
@@ -54,5 +55,6 @@ private:
 	FSceneView View;
 	FSceneRenderData& RenderData;
 	FViewContext CachedViewContext;
+	FRenderGraphTextureRef NormalRoughnessRef;
 	bool bCorePassSucceeded = true;
 };

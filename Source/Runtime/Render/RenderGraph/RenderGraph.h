@@ -50,16 +50,28 @@ struct FRenderGraphRasterPassDesc
 	uint32 Height = 0;
 };
 
+struct FRenderGraphTextureDesc
+{
+	uint32 Width = 0;
+	uint32 Height = 0;
+	DXGI_FORMAT Format = DXGI_FORMAT_UNKNOWN;
+	UINT BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+};
+
 // 1단계: 외부 텍스처와 순차 래스터 패스만 지원한다.
 // 패스의 실행 함수는 바인딩된 RTV/DSV를 변경하지 않아야 한다.
 class FRenderGraphBuilder
 {
 public:
 	FRenderGraphBuilder() = default;
+	~FRenderGraphBuilder();
 	FRenderGraphBuilder(const FRenderGraphBuilder&) = delete;
 	FRenderGraphBuilder& operator=(const FRenderGraphBuilder&) = delete;
 
 	FRenderGraphTextureRef ImportTexture(FTexture2D* Texture, const char* Name);
+	FRenderGraphTextureRef CreateTexture(const FRenderGraphTextureDesc& Desc, const char* Name);
+	FTexture2D* Resolve(FRenderGraphTextureRef Ref) const;
+
 	bool AddRasterPass(FRenderGraphRasterPassDesc Desc, std::function<void()> Execute);
 	bool Execute();
 
@@ -68,6 +80,8 @@ private:
 	{
 		FTexture2D* Texture = nullptr;
 		std::string Name;
+		FRenderGraphTextureDesc Desc{};
+		bool bTransient = false;
 	};
 	struct FRasterPass
 	{
@@ -77,7 +91,6 @@ private:
 		uint32 Height = 0;
 	};
 
-	FTexture2D* Resolve(FRenderGraphTextureRef Ref) const;
 	bool ValidatePass(const FRenderGraphRasterPassDesc& Desc, uint32& OutWidth, uint32& OutHeight) const;
 
 	std::vector<FImportedTexture> Textures;

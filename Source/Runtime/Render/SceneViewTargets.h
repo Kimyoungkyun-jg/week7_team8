@@ -8,9 +8,6 @@
 struct FSceneViewTargets
 {
 	TUniquePtr<FTexture2D> SceneColor;
-	TUniquePtr<FTexture2D> LightingHDR;
-	TUniquePtr<FTexture2D> BaseColorMetallic;
-	TUniquePtr<FTexture2D> NormalRoughness;
 	TUniquePtr<FTexture2D> Depth;
 
 	// FXAA처리가 된 SceneColor로 swap하기 위해 사용된다.
@@ -29,9 +26,6 @@ struct FSceneViewTargets
 	void Reset()
 	{
 		SceneColor.reset();
-		LightingHDR.reset();
-		BaseColorMetallic.reset();
-		NormalRoughness.reset();
 		Depth.reset();
 	}
 
@@ -44,9 +38,6 @@ struct FSceneViewTargets
 		};
 
 		return HasSize(SceneColor) && SceneColor->GetRTV() && SceneColor->GetSRV() &&
-			HasSize(LightingHDR) && LightingHDR->GetRTV() && LightingHDR->GetSRV() &&
-			HasSize(BaseColorMetallic) && BaseColorMetallic->GetRTV() && BaseColorMetallic->GetSRV() &&
-			HasSize(NormalRoughness) && NormalRoughness->GetRTV() && NormalRoughness->GetSRV() &&
 			HasSize(Depth) && Depth->GetDSV() && Depth->GetSRV();
 	}
 
@@ -70,11 +61,6 @@ struct FSceneViewTargets
 
 		Desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
 		SceneColor = RenderCommand::CreateTexture2D(Desc);
-		BaseColorMetallic = RenderCommand::CreateTexture2D(Desc);
-
-		Desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
-		LightingHDR = RenderCommand::CreateTexture2D(Desc);
-		NormalRoughness = RenderCommand::CreateTexture2D(Desc);
 
 		// DSV로 쓰고 SRV로 읽을 수 있도록 typeless 리소스로 만든다.
 		Desc.Format = DXGI_FORMAT_R24G8_TYPELESS;

@@ -811,12 +811,12 @@ bool UEditorEngine::RenderScene(FSceneViewTargets& Targets, const FSceneView& Sc
 	}
 	else if (Options.bShowWorldNormal && WorldNormalRenderer)
 	{
-		const auto Normal = Graph.ImportTexture(Targets.NormalRoughness.get(), "NormalRoughness");
+		const auto Normal = SceneRenderer.GetNormalRoughnessRef();
 		auto Visualize = MakeViewportPass("WorldNormalVisualization", SceneColor);
 		Visualize.ReadTextures = { Normal, Depth };
-		if (!Graph.AddRasterPass(std::move(Visualize), [this, &Targets, DepthTarget, ColorTarget]
+		if (!Graph.AddRasterPass(std::move(Visualize), [this, &Graph, Normal, DepthTarget, ColorTarget]
 			{
-				WorldNormalRenderer->OnRender(Targets.NormalRoughness.get(), DepthTarget, ColorTarget);
+				WorldNormalRenderer->OnRender(Graph.Resolve(Normal), DepthTarget, ColorTarget);
 			})) return false;
 	}
 

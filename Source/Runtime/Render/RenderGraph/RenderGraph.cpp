@@ -78,6 +78,61 @@ namespace
 			View->Release();
 		}
 	}
+	struct FPooledTexture
+	{
+		TUniquePtr<FTexture2D> Texture;
+		bool bInUse = false;
+	};
+	static std::vector<FPooledTexture> GTexturePool;
+
+	FTexture2D* AcquireTexture(const FRenderGraphTextureDesc& Desc)
+	{
+		for (auto& Item : GTexturePool)
+		{
+			if (!Item.bInUse && Item.Texture &&
+				Item.Texture->GetWidth() == Desc.Width &&
+				Item.Texture->GetHeight() == Desc.Height &&
+				Item.Texture->GetFormat() == Desc.Format)
+			{
+				Item.bInUse = true;
+				return Item.Texture.get();
+			}
+		}
+
+		D3D11_TEXTURE2D_DESC D3DDesc{};
+		D3DDesc.Width = Desc.Width;
+		D3DDesc.Height = Desc.Height;
+		D3DDesc.MipLevels = 1;
+		D3DDesc.ArraySize = 1;
+		D3DDesc.SampleDesc.Count = 1;
+		D3DDesc.Usage = D3D11_USAGE_DEFAULT;
+		D3DDesc.BindFlags = Desc.BindFlags;
+		D3DDesc.Format = Desc.Format;
+
+		auto NewTex = RenderCommand::CreateTexture2D(D3DDesc);
+		if (!NewTex) return nullptr;
+		FTexture2D* Ptr = NewTex.get();
+		GTexturePool.push_back({ std::move(NewTex), true });
+		return Ptr;
+	}
+}
+
+FRenderGraphBuilder::~FRenderGraphBuilder()
+{
+	for (auto& Entry : Textures)
+	{
+		if (Entry.bTransient && Entry.Texture)
+		{
+			for (auto& Item : GTexturePool)
+			{
+				if (Item.Texture.get() == Entry.Texture)
+				{
+					Item.bInUse = false;
+					break;
+				}
+			}
+		}
+	}
 }
 
 FRenderGraphTextureRef FRenderGraphBuilder::ImportTexture(FTexture2D* Texture, const char* Name)
@@ -85,10 +140,31 @@ FRenderGraphTextureRef FRenderGraphBuilder::ImportTexture(FTexture2D* Texture, c
 	if (bExecuted || !Texture || !Texture->GetRawPtr() || !Texture->GetWidth() || !Texture->GetHeight())
 		return {};
 	for (uint32 Index = 0; Index < Textures.size(); ++Index)
-		if (Textures[Index].Texture->GetRawPtr() == Texture->GetRawPtr())
+	{
+		if (Textures[Index].Texture == Texture)
 			return { Index, this };
+	}
 	const uint32 Index = static_cast<uint32>(Textures.size());
-	Textures.push_back({ Texture, Name ? Name : "" });
+	FImportedTexture Entry{};
+	Entry.Texture = Texture;
+	Entry.Name = Name ? Name : "";
+	Entry.Desc.Width = Texture->GetWidth();
+	Entry.Desc.Height = Texture->GetHeight();
+	Entry.Desc.Format = Texture->GetFormat();
+	Textures.push_back(std::move(Entry));
+	return { Index, this };
+}
+
+FRenderGraphTextureRef FRenderGraphBuilder::CreateTexture(const FRenderGraphTextureDesc& Desc, const char* Name)
+{
+	if (bExecuted || Desc.Width == 0 || Desc.Height == 0)
+		return {};
+	const uint32 Index = static_cast<uint32>(Textures.size());
+	FImportedTexture Entry{};
+	Entry.Name = Name ? Name : "";
+	Entry.Desc = Desc;
+	Entry.bTransient = true;
+	Textures.push_back(std::move(Entry));
 	return { Index, this };
 }
 
@@ -106,17 +182,19 @@ bool FRenderGraphBuilder::ValidatePass(const FRenderGraphRasterPassDesc& Desc,
 	std::vector<uint32> OutputIndices;
 	const auto ValidateOutput = [&](FRenderGraphTextureRef Ref, bool bDepth) -> bool
 	{
-		FTexture2D* Texture = Resolve(Ref);
-		if (!Texture || !(bDepth ? Texture->GetDSV() != nullptr : Texture->GetRTV() != nullptr) ||
-			std::find(OutputIndices.begin(), OutputIndices.end(), Ref.Index) != OutputIndices.end())
+		if (Ref.Owner != this || Ref.Index >= Textures.size()) return false;
+		const FImportedTexture& Entry = Textures[Ref.Index];
+		if (std::find(OutputIndices.begin(), OutputIndices.end(), Ref.Index) != OutputIndices.end())
 			return false;
 		OutputIndices.push_back(Ref.Index);
+		const uint32 TexWidth = Entry.Texture ? Entry.Texture->GetWidth() : Entry.Desc.Width;
+		const uint32 TexHeight = Entry.Texture ? Entry.Texture->GetHeight() : Entry.Desc.Height;
 		if (OutWidth == 0 && OutHeight == 0)
 		{
-			OutWidth = Texture->GetWidth();
-			OutHeight = Texture->GetHeight();
+			OutWidth = TexWidth;
+			OutHeight = TexHeight;
 		}
-		return Texture->GetWidth() == OutWidth && Texture->GetHeight() == OutHeight;
+		return TexWidth == OutWidth && TexHeight == OutHeight;
 	};
 	OutWidth = Desc.Width;
 	OutHeight = Desc.Height;
@@ -126,9 +204,8 @@ bool FRenderGraphBuilder::ValidatePass(const FRenderGraphRasterPassDesc& Desc,
 	if (Desc.DepthAttachment.Texture && !ValidateOutput(Desc.DepthAttachment.Texture, true)) return false;
 	for (FRenderGraphTextureRef Read : Desc.ReadTextures)
 	{
-		FTexture2D* Texture = Resolve(Read);
-		if (!Texture || !Texture->GetSRV() ||
-			std::find(OutputIndices.begin(), OutputIndices.end(), Read.Index) != OutputIndices.end())
+		if (Read.Owner != this || Read.Index >= Textures.size()) return false;
+		if (std::find(OutputIndices.begin(), OutputIndices.end(), Read.Index) != OutputIndices.end())
 			return false;
 	}
 	return true;
@@ -147,6 +224,15 @@ bool FRenderGraphBuilder::Execute()
 {
 	if (bExecuted || !RenderCommand::GetContext()) return false;
 	bExecuted = true;
+
+	for (auto& Entry : Textures)
+	{
+		if (Entry.bTransient && !Entry.Texture)
+		{
+			Entry.Texture = AcquireTexture(Entry.Desc);
+		}
+	}
+
 	ID3D11DeviceContext* Context = RenderCommand::GetContext();
 	for (FRasterPass& Pass : Passes)
 	{
@@ -158,7 +244,7 @@ bool FRenderGraphBuilder::Execute()
 		{
 			FTexture2D* Texture = Resolve(Pass.Desc.ColorAttachments[Index].Texture);
 			ColorTargets[Index] = Texture;
-			Outputs.push_back(Texture->GetRawPtr());
+			if (Texture) Outputs.push_back(Texture->GetRawPtr());
 		}
 		FTexture2D* Depth = Pass.Desc.DepthAttachment.Texture
 			? Resolve(Pass.Desc.DepthAttachment.Texture) : nullptr;
@@ -167,7 +253,7 @@ bool FRenderGraphBuilder::Execute()
 		for (uint32 Index = 0; Index < Pass.Desc.ColorAttachments.size(); ++Index)
 		{
 			const FRenderGraphColorAttachment& Attachment = Pass.Desc.ColorAttachments[Index];
-			if (Attachment.LoadAction == ERenderGraphLoadAction::Clear)
+			if (Attachment.LoadAction == ERenderGraphLoadAction::Clear && ColorTargets[Index])
 			{
 				const float Color[4] = { Attachment.ClearColor[0], Attachment.ClearColor[1],
 					Attachment.ClearColor[2], Attachment.ClearColor[3] };
@@ -185,3 +271,4 @@ bool FRenderGraphBuilder::Execute()
 	}
 	return true;
 }
+
