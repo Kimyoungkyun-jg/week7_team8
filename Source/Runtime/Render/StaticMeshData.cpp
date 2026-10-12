@@ -30,6 +30,64 @@ namespace
 	}
 }
 
+void FStaticMeshData::RecalculateTangents()
+{
+	const uint32 VertexCount = static_cast<uint32>(Vertices.Num());
+	std::vector<FVector> TangentSums(VertexCount, FVector());
+	std::vector<FVector> BitangentSums(VertexCount, FVector());
+
+	for (int32 I = 0; I + 2 < Indices.Num(); I += 3)
+	{
+		const uint32 IA = Indices[I];
+		const uint32 IB = Indices[I + 1];
+		const uint32 IC = Indices[I + 2];
+		if (IA >= VertexCount || IB >= VertexCount || IC >= VertexCount)
+			continue;
+
+		const FVertexPNCT& A = Vertices[IA];
+		const FVertexPNCT& B = Vertices[IB];
+		const FVertexPNCT& C = Vertices[IC];
+		const FVector E1 = B.Position - A.Position;
+		const FVector E2 = C.Position - A.Position;
+		const float DU1 = B.UV.X - A.UV.X;
+		const float DV1 = B.UV.Y - A.UV.Y;
+		const float DU2 = C.UV.X - A.UV.X;
+		const float DV2 = C.UV.Y - A.UV.Y;
+		const float Determinant = DU1 * DV2 - DU2 * DV1;
+		if (!std::isfinite(Determinant) || std::abs(Determinant) < 1.0e-8f)
+			continue;
+
+		const float InvDeterminant = 1.0f / Determinant;
+		const FVector Tangent = (E1 * DV2 - E2 * DV1) * InvDeterminant;
+		const FVector Bitangent = (E2 * DU1 - E1 * DU2) * InvDeterminant;
+		for (uint32 Index : { IA, IB, IC })
+		{
+			TangentSums[Index] += Tangent;
+			BitangentSums[Index] += Bitangent;
+		}
+	}
+
+	for (uint32 I = 0; I < VertexCount; ++I)
+	{
+		FVector N = Vertices[I].Normal;
+		const float NormalLengthSquared = N.Dot(N);
+		N = NormalLengthSquared > 1.0e-12f ? N * (1.0f / std::sqrt(NormalLengthSquared)) : FVector(0.0f, 0.0f, 1.0f);
+
+		// 보간된 접선을 법선에 직교화한다. UV가 없는 정점은 안정적인 축을 사용한다.
+		FVector T = TangentSums[I] - N * N.Dot(TangentSums[I]);
+		float TangentLengthSquared = T.Dot(T);
+		if (!std::isfinite(TangentLengthSquared) || TangentLengthSquared < 1.0e-12f)
+		{
+			const FVector Axis = std::abs(N.Z) < 0.999f ? FVector(0.0f, 0.0f, 1.0f) : FVector(0.0f, 1.0f, 0.0f);
+			T = Axis.Cross(N);
+			TangentLengthSquared = T.Dot(T);
+		}
+		T *= 1.0f / std::sqrt(TangentLengthSquared);
+		const float Handedness = N.Cross(T).Dot(BitangentSums[I]) < 0.0f ? -1.0f : 1.0f;
+		Vertices[I].Tangent = FVector4(T.X, T.Y, T.Z, Handedness);
+	}
+}
+
 bool FStaticMeshData::Validate(FString& OutError) const
 {
 	const uint32 VertexCount = static_cast<uint32>(Vertices.Num());

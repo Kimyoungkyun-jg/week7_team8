@@ -9,7 +9,7 @@ class UWorld;
 class FScene;
 class FRenderer;
 class FConstantBuffer;
-struct FDeferredViewTargets;
+struct FSceneViewTargets;
 
 // 씬 렌더링 조율자
 class FSceneRenderer
@@ -30,10 +30,10 @@ public:
 	const FRenderStats& GetRenderStats() const { return RenderData.RenderStats; }
 
 	// 불투명 장면을 GBuffer 패스로 렌더링한다.
-	bool RenderDeferredOpaque(FRenderer* Renderer, const FDeferredViewTargets& Targets, uint32 Width, uint32 Height);
+	bool RenderDeferredOpaque(FRenderer* Renderer, const FSceneViewTargets& Targets, uint32 Width, uint32 Height);
 	bool RenderForwardOpaque(FRenderer* Renderer, ELightingModel LightingModel, bool bEnableClusteredLightCulling);
-	void RenderDeferredLighting(FRenderer* Renderer, const FDeferredViewTargets& Targets);
-	void RenderToneMap(FRenderer* Renderer, const FDeferredViewTargets& Targets);
+	void RenderDeferredLighting(FRenderer* Renderer, const FSceneViewTargets& Targets);
+	void RenderToneMap(FRenderer* Renderer, const FSceneViewTargets& Targets);
 
 	// 반투명 렌더링
 	void RenderTranslucent(FRenderer* Renderer, FConstantBuffer* FogConstants = nullptr);

@@ -167,6 +167,8 @@ bool UEditorEngine::Init() {
 
 	SceneDepthRenderer = MakeUnique<FSceneDepthRenderer>();
 	SceneDepthRenderer->Init(Renderer);
+	WorldNormalRenderer = MakeUnique<FWorldNormalRenderer>();
+	WorldNormalRenderer->Init();
 
 	HeightFogRenderer = MakeUnique<FHeightFogRenderer>();
 	HeightFogRenderer->Init(Renderer);
@@ -705,7 +707,7 @@ void UEditorEngine::RenderGameFrame(FGameViewportClient* GameClient, const FScen
 		Options.LightingModel = SettingsPanel->GetSettings().LightingModel;
 		Options.bEnableClusteredLightCulling = SettingsPanel->GetSettings().bEnableClusteredLightCulling;
 	}
-	FDeferredViewTargets& Targets = GameClient->GetViewTargets();
+	FSceneViewTargets& Targets = GameClient->GetViewTargets();
 	const bool bRendered = Options.RenderingPath == ERenderingPath::Forward
 		? ForwardRender(Targets, SceneView, SceneRenderer, GameClient->GetWorld(), Options)
 		: DeferredRender(Targets, SceneView, SceneRenderer, GameClient->GetWorld(), Options);
@@ -734,7 +736,7 @@ void UEditorEngine::RenderGameFrame(FGameViewportClient* GameClient, const FScen
 	RenderCommand::EndRenderPass();
 }
 
-bool UEditorEngine::DeferredRender(FDeferredViewTargets& Targets, const FSceneView& SceneView,
+bool UEditorEngine::DeferredRender(FSceneViewTargets& Targets, const FSceneView& SceneView,
 	FSceneRenderer& SceneRenderer, UWorld* TargetWorld, const FSceneRenderOptions& Options)
 {
 	FTexture2D* ColorTarget = Targets.SceneColor.get();
@@ -783,7 +785,9 @@ bool UEditorEngine::DeferredRender(FDeferredViewTargets& Targets, const FSceneVi
 
 	if (Options.bShowSceneDepth && SceneDepthRenderer)
 		SceneDepthRenderer->OnRender(SceneView, DepthTarget, ColorTarget, Options.SceneDepthRange);
-	if (Options.bEnableFXAA && !Options.bShowSceneDepth && FXAARenderer &&
+	else if (Options.bShowWorldNormal && WorldNormalRenderer)
+		WorldNormalRenderer->OnRender(Targets.NormalRoughness.get(), DepthTarget, ColorTarget);
+	if (Options.bEnableFXAA && !Options.bShowSceneDepth && !Options.bShowWorldNormal && FXAARenderer &&
 		FXAARenderer->OnRender(SceneView, DepthTarget, ColorTarget))
 	{
 		// Both viewport types now exchange and bind the same final output target.
@@ -793,7 +797,7 @@ bool UEditorEngine::DeferredRender(FDeferredViewTargets& Targets, const FSceneVi
 	return true;
 }
 
-bool UEditorEngine::ForwardRender(FDeferredViewTargets& Targets, const FSceneView& SceneView,
+bool UEditorEngine::ForwardRender(FSceneViewTargets& Targets, const FSceneView& SceneView,
 	FSceneRenderer& SceneRenderer, UWorld* TargetWorld, const FSceneRenderOptions& Options)
 {
 	FTexture2D* ColorTarget = Targets.SceneColor.get();
@@ -806,7 +810,8 @@ bool UEditorEngine::ForwardRender(FDeferredViewTargets& Targets, const FSceneVie
 		return false;
 
 	// Forward opaque shading writes lit linear color and depth in one mesh pass.
-	RenderCommand::BeginRenderPass(Targets.LightingHDR.get(), DepthTarget, Width, Height);
+	if (!RenderCommand::BeginForwardOpaquePass(Targets, Width, Height, Options.bShowWorldNormal))
+		return false;
 	if (Options.bDrawPrimitives && !SceneRenderer.RenderForwardOpaque(Renderer, Options.LightingModel,
 		Options.bEnableClusteredLightCulling))
 	{
@@ -836,7 +841,9 @@ bool UEditorEngine::ForwardRender(FDeferredViewTargets& Targets, const FSceneVie
 	RenderSceneText(TargetWorld, SceneView);
 	if (Options.bShowSceneDepth && SceneDepthRenderer)
 		SceneDepthRenderer->OnRender(SceneView, DepthTarget, ColorTarget, Options.SceneDepthRange);
-	if (Options.bEnableFXAA && !Options.bShowSceneDepth && FXAARenderer &&
+	else if (Options.bShowWorldNormal && WorldNormalRenderer)
+		WorldNormalRenderer->OnRender(Targets.NormalRoughness.get(), DepthTarget, ColorTarget);
+	if (Options.bEnableFXAA && !Options.bShowSceneDepth && !Options.bShowWorldNormal && FXAARenderer &&
 		FXAARenderer->OnRender(SceneView, DepthTarget, ColorTarget))
 	{
 		if (!Targets.SwapSceneColorAndBind(FXAARenderer->GetOutputTarget()))
@@ -1026,9 +1033,10 @@ void UEditorEngine::RenderFrame(FEditorViewportClient *ViewClient,
 	Options.LightingModel = SettingsPanel->GetSettings().LightingModel;
 	Options.bEnableClusteredLightCulling = SettingsPanel->GetSettings().bEnableClusteredLightCulling;
 	Options.bShowSceneDepth = !bIsPIE && ViewClient->IsSceneDepth();
+	Options.bShowWorldNormal = !bIsPIE && ViewClient->IsWorldNormal();
 	Options.SceneDepthRange = ViewClient->GetMaxRange();
 
-	FDeferredViewTargets& Targets = ViewClient->GetViewTargets();
+	FSceneViewTargets& Targets = ViewClient->GetViewTargets();
 	const bool bRendered = Options.RenderingPath == ERenderingPath::Forward
 		? ForwardRender(Targets, SceneView, SceneRenderer, TargetWorld, Options)
 		: DeferredRender(Targets, SceneView, SceneRenderer, TargetWorld, Options);

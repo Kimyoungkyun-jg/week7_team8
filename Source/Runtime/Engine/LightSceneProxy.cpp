@@ -55,7 +55,7 @@ void FDirectionalLightSceneProxy::Update()
 	UpdateCommon(DirectionalComponent && DirectionalComponent->IsEnabled());
 	if (!DirectionalComponent) return;
 
-	const FVector Direction = DirectionalComponent->GetDirection();
+	const FVector Direction = DirectionalComponent->GetWorldDirection();
 	const FVector4& Color = DirectionalComponent->GetLightColor();
 	const float Intensity = std::max(0.0f, DirectionalComponent->GetIntensity());
 	RenderData.DirectionIntensity = FVector4(Direction.X, Direction.Y, Direction.Z, Intensity);

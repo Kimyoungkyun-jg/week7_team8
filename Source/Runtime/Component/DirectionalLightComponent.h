@@ -7,6 +7,7 @@ class UDirectionalLightComponent : public ULightComponent
 	DECLARE_CLASS(UDirectionalLightComponent, ULightComponent)
 	REFLECT_START(UDirectionalLightComponent)
 		PROPERTY(bEnabled)
+		PROPERTY(Direction)
 	REFLECT_END()
 
 public:
@@ -18,8 +19,10 @@ public:
 	~UDirectionalLightComponent() override { UnregisterComponent(); }
 	bool IsEnabled() const { return bEnabled; }
 	void SetEnabled(bool bInEnabled) { bEnabled = bInEnabled; OnPropertyChanged("bEnabled"); }
-	FVector GetDirection() const;
+	const FVector& GetDirection() const { return Direction; }
+	FVector GetWorldDirection() const;
 	void SetDirection(const FVector& InDirection);
+	void OnPropertyChanged(const FString& PropertyName) override;
 
 protected:
 	bool ShouldCreateRenderState() const override { return true; }
@@ -28,4 +31,5 @@ protected:
 
 private:
 	bool bEnabled = true;
+	FVector Direction{ 1.0f, 0.0f, 0.0f };
 };

@@ -10,7 +10,7 @@ struct FStaticMeshMaterialParams
 {
 	FVector4 BaseColor;
 	FVector2 UVOffset;
-	FVector2 Padding;
+	FVector2 TextureFlags; // x: 노멀맵 사용 여부
 };
 
 class UMaterial : public UMaterialInterface

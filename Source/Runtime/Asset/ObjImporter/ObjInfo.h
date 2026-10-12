@@ -49,6 +49,7 @@ struct FObjMaterialInfo
 	FString Name;
 	FVector Kd = FVector(1.0f, 1.0f, 1.0f);
 	FString MapKd; // 저장소 루트 기준
+	FString MapNormal; // MTL의 노멀맵 경로
 	float D = 1.0f;
 };
 

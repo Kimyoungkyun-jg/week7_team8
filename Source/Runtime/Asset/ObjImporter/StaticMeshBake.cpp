@@ -2,13 +2,19 @@
 #include "StaticMeshBake.h"
 
 #include <cstring>
+#include <cstddef>
 #include <fstream>
 #include <type_traits>
 
 #include "Render/StaticMeshData.h"
 #include "Core/EngineLog.h"
 
-static_assert(sizeof(FVertexPNCT) == 48);
+static_assert(sizeof(FVertexPNCT) == 64);
+static_assert(offsetof(FVertexPNCT, Position) == 0);
+static_assert(offsetof(FVertexPNCT, Normal) == 12);
+static_assert(offsetof(FVertexPNCT, Color) == 24);
+static_assert(offsetof(FVertexPNCT, UV) == 40);
+static_assert(offsetof(FVertexPNCT, Tangent) == 48);
 
 // 바이트 그대로 읽고 쓰는 타입. 복사 생성자를 직접 작성하면 여기서 컴파일 오류가 난다
 static_assert(std::is_trivially_copyable_v<FVertexPNCT>);
@@ -21,7 +27,7 @@ static_assert(std::is_trivially_copyable_v<FLODSourceVertex>);
 namespace
 {
 	// FStaticMeshData, FVertexPNCT, FStaticMeshSection, FStaticMaterialSlot 구조가 바뀌면 올린다
-	constexpr uint32 BakeVersion = 3;
+	constexpr uint32 BakeVersion = 5;
 
 	struct FBakeHeader
 	{
@@ -137,7 +143,8 @@ TUniquePtr<FStaticMeshData> FStaticMeshBake::ReadBaked(const FString& BinPath)
 		FStaticMaterialSlot Slot;
 		if (!ReadString(In, Slot.Name) ||
 			!ReadPod<FVector4>(In, Slot.BaseColor) ||
-			!ReadString(In, Slot.DiffuseTexturePath))
+			!ReadString(In, Slot.DiffuseTexturePath) ||
+			!ReadString(In, Slot.NormalTexturePath))
 		{
 			return nullptr;
 		}
@@ -184,6 +191,7 @@ void FStaticMeshBake::WriteBaked(const FString& BinPath, const FStaticMeshData& 
 		WriteString(Out, Slot.Name);
 		WritePod<FVector4>(Out, Slot.BaseColor);
 		WriteString(Out, Slot.DiffuseTexturePath);
+		WriteString(Out, Slot.NormalTexturePath);
 	}
 
 	// AABB

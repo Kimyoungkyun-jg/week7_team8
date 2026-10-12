@@ -10,7 +10,7 @@
 
 #include "RenderCommand.h"
 #include "RenderResourceManager.h"
-#include "DeferredViewTargets.h"
+#include "SceneViewTargets.h"
 
 #include "Camera/CameraComponent.h"
 
@@ -26,6 +26,18 @@ namespace
 {
 	constexpr uint32 ForwardSceneLightSlot = 8;
 	constexpr uint32 DeferredSceneLightSlot = 3;
+
+	// 셰이더의 노멀맵 디코딩 방식: 0 없음, 1 RGB, 2 BC5 UNORM, 3 BC5 SNORM.
+	float GetNormalTextureEncoding(UTexture2D* Texture)
+	{
+		if (!Texture || !Texture->GetResource() || !Texture->GetResource()->GetSRV()) return 0.0f;
+		switch (Texture->GetResource()->GetFormat())
+		{
+		case DXGI_FORMAT_BC5_UNORM: return 2.0f;
+		case DXGI_FORMAT_BC5_SNORM: return 3.0f;
+		default: return 1.0f;
+		}
+	}
 
 	template <typename T>
 	bool UploadLightBuffer(TUniquePtr<FStructuredBuffer>& Buffer, const TArray<T>& Lights)
@@ -263,18 +275,25 @@ void FRenderer::BindForwardMaterial(UMaterial* Material, const FSceneView& View,
 	UTexture2D* ColorTexture = Material->Textures.IsEmpty() ? nullptr : Material->Textures[0];
 	const bool bHasColorTexture = ColorTexture && ColorTexture->GetResource() &&
 		ColorTexture->GetResource()->GetSRV();
+	UTexture2D* NormalTexture = Material->Textures.Num() > 1 ? Material->Textures[1] : nullptr;
+	const float NormalEncoding = GetNormalTextureEncoding(NormalTexture);
+	const bool bHasNormalTexture = NormalEncoding > 0.5f;
 	RenderCommand::BindShaderResource(0, bHasColorTexture ? ColorTexture : nullptr, EShaderBindFlagBits::Pixel);
-	for (size_t Index = 1; Index < Material->Textures.size(); ++Index)
+	RenderCommand::BindShaderResource(1, bHasNormalTexture ? NormalTexture : nullptr,
+		EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
+	for (size_t Index = 2; Index < Material->Textures.size(); ++Index)
 		RenderCommand::BindShaderResource(static_cast<uint32>(Index), Material->Textures[Index], EShaderBindFlagBits::Pixel);
 	ForwardClusterGrid.BindPixelShader();
 	RenderCommand::BindShaderResource(ForwardSceneLightSlot,
 		SceneLightBuffer && SceneLightBuffer->GetSRV() ? SceneLightBuffer.get() : nullptr,
 		EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
-	RenderCommand::BindSamplerState(0, Material->SamplerState, EShaderBindFlagBits::Pixel);
+	RenderCommand::BindSamplerState(0, Material->SamplerState,
+		EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
 
 	FForwardMaterialConstants Params{};
 	Params.BaseColor = Material->BaseColor;
-	Params.SurfaceParams = FVector4(0.25f, 32.0f, bHasColorTexture ? 1.0f : 0.0f, 0.0f);
+	Params.SurfaceParams = FVector4(0.25f, 32.0f, bHasColorTexture ? 1.0f : 0.0f,
+		NormalEncoding);
 	const FVector2 UVOffset = Material->UVScrollSpeed * EngineTimer::GetTotalTime();
 	Params.UVTransform = FVector4(UVOffset.X, UVOffset.Y, 1.0f, 1.0f);
 	RenderCommand::UpdateBufferData(ForwardMaterialCB.get(), &Params, sizeof(Params));
@@ -295,7 +314,7 @@ void FRenderer::DrawForwardObject(const FSceneView& View, const FMatrix& World,
 	RenderCommand::DrawIndexed(IndexCount, StartIndex);
 }
 
-void FRenderer::DrawDeferredLighting(const FSceneView& View, const FDeferredViewTargets& Targets,
+void FRenderer::DrawDeferredLighting(const FSceneView& View, const FSceneViewTargets& Targets,
 	const FAmbientLightRenderData& AmbientLight,
 	const TArray<FDirectionalLightRenderData>& DirectionalLights,
 	const TArray<FPointLightRenderData>& PointLights,
@@ -348,7 +367,7 @@ void FRenderer::DrawDeferredLighting(const FSceneView& View, const FDeferredView
 	RenderCommand::UnbindShaderResources(0, 4, EShaderBindFlagBits::Pixel);
 }
 
-void FRenderer::DrawToneMap(const FDeferredViewTargets& Targets)
+void FRenderer::DrawToneMap(const FSceneViewTargets& Targets)
 {
 	FPipelineState* PSO = FRenderResourceManager::GetPSO(EPSOType::ToneMap);
 	if (!PSO || !PSO->Shader || !PSO->Shader->VertexShader || !PSO->Shader->PixelShader)
@@ -692,11 +711,18 @@ void FRenderer::BindMaterial(UMaterial* material, bool bInWireframe, bool bGBuff
 		if (bGBufferPass && bInWireframe)
 			RenderCommand::SetRasterizerState(ERasterizerState::Wireframe);
 	}
+
 	// 텍스처와 샘플러 바인딩
-	for (size_t i = 0; i < material->Textures.size(); i++)
-	{
+	RenderCommand::BindShaderResource(0,
+		material->Textures.Num() > 0 ? material->Textures[0] : nullptr,
+		EShaderBindFlagBits::Pixel);
+	RenderCommand::BindShaderResource(1,
+		material->Textures.Num() > 1 ? material->Textures[1] : nullptr,
+		EShaderBindFlagBits::Pixel);
+
+	for (size_t i = 2; i < material->Textures.size(); ++i)
 		RenderCommand::BindShaderResource(static_cast<uint32>(i), material->Textures[i], EShaderBindFlagBits::Pixel);
-	}
+
 	RenderCommand::BindSamplerState(0, material->SamplerState, EShaderBindFlagBits::Pixel);
 }
 
@@ -719,6 +745,9 @@ void FRenderer::UpdateMaterialParams(const FRenderPacket& RenderPacket)
 		FStaticMeshMaterialParams Params{};
 		Params.BaseColor = RenderPacket.Material->BaseColor;
 		Params.UVOffset = RenderPacket.Material->UVScrollSpeed * TotalTime;
+		UTexture2D* NormalTexture = RenderPacket.Material->Textures.Num() > 1
+			? RenderPacket.Material->Textures[1] : nullptr;
+		Params.TextureFlags.X = GetNormalTextureEncoding(NormalTexture);
 		RenderCommand::UpdateBufferData(RenderPacket.Material->ParamBuffer.get(), &Params, sizeof(FStaticMeshMaterialParams));
 		RenderCommand::BindConstantBuffer(1, RenderPacket.Material->ParamBuffer.get(), EShaderBindFlagBits::Pixel);
 		break;

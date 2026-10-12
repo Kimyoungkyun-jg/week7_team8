@@ -138,7 +138,8 @@ void FSettingsPanel::OnRender()
 // 알려진 설정 섹션을 editor.ini에 함께 기록해 뷰포트 값 유실을 막는다.
 bool FSettingsPanel::SaveSettings() const
 {
-	const FEditorSettings& Snapshot = Settings;
+	FEditorSettings Snapshot = Settings;
+	ReadViewportSettings(Snapshot);
 	std::ofstream File("editor.ini");
 
 	if (!File.is_open())
@@ -184,6 +185,7 @@ bool FSettingsPanel::SaveSettings() const
         File << "View" << Index << "OrthoWidth=" << Snapshot.ViewOrthoWidth[Index] << "\n";
         File << "View" << Index << "Preset=" << Snapshot.ViewPreset[Index] << "\n";
         File << "View" << Index << "Wireframe=" << Snapshot.ViewWireframe[Index] << "\n";
+        File << "View" << Index << "Mode=" << Snapshot.ViewMode[Index] << "\n";
         File << "View" << Index << "LocationX=" << Snapshot.ViewLocation[Index].X << "\n";
         File << "View" << Index << "LocationY=" << Snapshot.ViewLocation[Index].Y << "\n";
         File << "View" << Index << "LocationZ=" << Snapshot.ViewLocation[Index].Z << "\n";
@@ -242,6 +244,9 @@ bool FSettingsPanel::LoadSettings()
                         Settings.ViewPreset[Index] = static_cast<int32>(Value);
                     else if (Key == Prefix + "Wireframe" && (Value == 0 || Value == 1))
                         Settings.ViewWireframe[Index] = static_cast<int32>(Value);
+                    else if (Key == Prefix + "Mode" && Value >= 0 &&
+                        Value <= static_cast<int32>(EViewportMode::WorldNormal) && Value == static_cast<int32>(Value))
+                        Settings.ViewMode[Index] = static_cast<int32>(Value);
                     else if (Key == Prefix + "LocationX")
                     {
                         Settings.ViewLocation[Index].X = Value;
@@ -365,6 +370,7 @@ void FSettingsPanel::ReadViewportSettings(FEditorSettings& Out) const
 		Out.ViewFov[Index] = Client->GetViewFOV();
 		Out.ViewOrthoWidth[Index] = Client->GetOrthoWidth();
 		Out.ViewWireframe[Index] = Client->IsWireframe() ? 1 : 0;
+		Out.ViewMode[Index] = static_cast<int32>(Client->GetViewportMode());
 		Out.ViewLocation[Index] = Client->GetViewLocation();
 		Out.ViewRotation[Index] = Client->GetViewRotation().Quaternion();
 	}
@@ -390,6 +396,8 @@ void FSettingsPanel::ApplyViewportSettings()
 			Client->SetViewFOV(Settings.ViewFov[Index]);
 		if (Settings.ViewWireframe[Index] >= 0)
 			Client->SetViewportMode(Settings.ViewWireframe[Index] == 1 ? EViewportMode::Wireframe : EViewportMode::Solid);
+		if (Settings.ViewMode[Index] >= 0)
+			Client->SetViewportMode(static_cast<EViewportMode>(Settings.ViewMode[Index]));
 	}
 }
 

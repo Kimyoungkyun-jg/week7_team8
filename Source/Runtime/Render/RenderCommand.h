@@ -9,7 +9,7 @@ class UTexture2D;
 class FShaderProgram;
 class FVertexShader;
 class FPixelShader;
-struct FDeferredViewTargets;
+struct FSceneViewTargets;
 
 enum class EShaderBindFlagBits : uint32
 {
@@ -80,8 +80,9 @@ public:
 	static void UnbindShaderResources(uint32 FirstSlot, uint32 Count, EShaderBindFlagBits FlagBits);
 
 	static void BeginRenderPass(FTexture2D* ColorTarget, FTexture2D* DepthTarget, uint32 Width, uint32 Height);
+	static bool BeginForwardOpaquePass(const FSceneViewTargets& Targets, uint32 Width, uint32 Height, bool bWriteWorldNormal);
 	static void BindRenderPassNoClear(FTexture2D* ColorTarget, FTexture2D* DepthTarget, uint32 Width, uint32 Height);
-	static bool BeginGBufferPass(const FDeferredViewTargets& Targets, uint32 Width, uint32 Height);
+	static bool BeginGBufferPass(const FSceneViewTargets& Targets, uint32 Width, uint32 Height);
 	static void EndRenderPass();
 	static void ClearDepthStencil(FTexture2D* DepthStencilTexture, float Depth = 1.0f, uint8 Stencil = 0);
 	static void SetRenderTargets(FTexture2D* ColorTarget, FTexture2D* DepthTarget);

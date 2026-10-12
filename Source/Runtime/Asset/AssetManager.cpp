@@ -25,6 +25,7 @@ namespace
 			return nullptr;
 
 		FStaticMeshData Optimized = *MeshData;
+		Optimized.RecalculateTangents();
 
 		// Mesh에 MaterialSlot 없을 경우 Default Material 할당
 		if (Optimized.MaterialSlots.IsEmpty())
@@ -85,6 +86,16 @@ namespace
 				{
 					Material->Textures[0] = Texture;
 				}
+			}
+			if (!Slot.NormalTexturePath.empty())
+			{
+				if (UTexture2D* Texture = UAssetManager::Get().LoadTexture(Slot.NormalTexturePath))
+				{
+					while (Material->Textures.Num() < 2) Material->Textures.Add(nullptr);
+					Material->Textures[1] = Texture;
+				}
+				else
+					HTR_LOG(Warning, "[Material] normal texture not loaded: {}", Slot.NormalTexturePath);
 			}
 			Mesh->Materials.Add(Material);
 		}
@@ -335,14 +346,17 @@ UTexture2D* UAssetManager::LoadTexture(const FString& InPath, bool bGenerateMips
 	Desc.ArraySize = 1;
 	Desc.Format = Data.Format;              // 로더가 정한 포맷 (.hdr이면 float)
 	Desc.SampleDesc.Count = 1;
-	Desc.MipLevels = bGenerateMips ? 0 : 1;
-	Desc.Usage = bGenerateMips ? D3D11_USAGE_DEFAULT : D3D11_USAGE_IMMUTABLE;
-	Desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | (bGenerateMips ? D3D11_BIND_RENDER_TARGET : 0);
-	Desc.MiscFlags = bGenerateMips ? D3D11_RESOURCE_MISC_GENERATE_MIPS : 0;
+	// DDS는 파일에 든 압축 mip을 그대로 올린다. 압축 텍스처에는 GenerateMips를 쓰지 않는다.
+	const bool bUseDDSLevels = Data.MipRowPitches.Num() > 0;
+	const bool bGenerateGPUmips = bGenerateMips && !bUseDDSLevels;
+	Desc.MipLevels = bGenerateGPUmips ? 0 : Data.MipLevels;
+	Desc.Usage = bGenerateGPUmips ? D3D11_USAGE_DEFAULT : D3D11_USAGE_IMMUTABLE;
+	Desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | (bGenerateGPUmips ? D3D11_BIND_RENDER_TARGET : 0);
+	Desc.MiscFlags = bGenerateGPUmips ? D3D11_RESOURCE_MISC_GENERATE_MIPS : 0;
 
 	TUniquePtr<FTexture2D> Resource = RenderCommand::CreateTexture2D(Desc, Data);
 
-	if (!Resource) return nullptr;
+	if (!Resource || !Resource->GetSRV()) return nullptr;
 
 	UTexture2D* Asset = FObjectFactory::ConstructObject<UTexture2D>();
 	Asset->SetResource(std::move(Resource));
@@ -428,6 +442,7 @@ bool UAssetManager::ReorientStaticMesh(UStaticMesh& Mesh, const std::function<FV
 		Bounds.Max = FVector(std::max(Bounds.Max.X, Vertex.Position.X), std::max(Bounds.Max.Y, Vertex.Position.Y), std::max(Bounds.Max.Z, Vertex.Position.Z));
 	}
 	Data.AABB = Bounds;
+	Data.RecalculateTangents();
 
 	// 인덱스는 그대로다 (회전은 삼각형 감기 방향을 바꾸지 않는다). 정점 버퍼만 다시 올린다.
 	TUniquePtr<FVertexBuffer> VB = RenderCommand::CreateStaticVertexBuffer(Data.Vertices.GetData(),
@@ -474,6 +489,7 @@ FLODGenerateResult UAssetManager::GenerateStaticMeshLODs(UStaticMesh& Mesh, cons
 	{
 		FStaticMeshLODResource Resource;
 		Resource.Data = std::move(Data);
+		Resource.Data.RecalculateTangents();
 		Resource.Data.OptimizeTriangleOrderForVertexCache();
 
 		Resource.VertexBuffer = RenderCommand::CreateStaticVertexBuffer(

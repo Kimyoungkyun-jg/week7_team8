@@ -5,8 +5,44 @@
 
 
 FTexture2D::FTexture2D(ID3D11Device* Device, const D3D11_TEXTURE2D_DESC& InDesc, const FImageData& Image)
-	: FTexture2D(Device, InDesc, Image.IsValid() ? Image.Pixels.GetData() : nullptr, Image.GetRowPitch())
 {
+	Width = InDesc.Width;
+	Height = InDesc.Height;
+	Depth = 1;
+	Format = InDesc.Format;
+	Dimension = ETextureDimension::Texture2D;
+	if (!Image.IsValid()) return;
+
+	const bool bGenerateMips = (InDesc.MiscFlags & D3D11_RESOURCE_MISC_GENERATE_MIPS) != 0;
+	TArray<D3D11_SUBRESOURCE_DATA> Subresources;
+	if (!bGenerateMips)
+	{
+		for (uint32 Level = 0; Level < Image.MipLevels; ++Level)
+		{
+			D3D11_SUBRESOURCE_DATA Sub{};
+			Sub.pSysMem = Image.Pixels.GetData() +
+				(Image.MipOffsets.IsEmpty() ? 0 : Image.MipOffsets[Level]);
+			Sub.SysMemPitch = Image.MipRowPitches.IsEmpty()
+				? Image.GetRowPitch() : Image.MipRowPitches[Level];
+			Subresources.Add(Sub);
+		}
+	}
+	const HRESULT Hr = Device->CreateTexture2D(&InDesc,
+		bGenerateMips ? nullptr : Subresources.GetData(),
+		reinterpret_cast<ID3D11Texture2D**>(Texture.GetAddressOf()));
+	if (FAILED(Hr))
+	{
+		HTR_LOG(Error, "[Texture2D] CreateTexture2D failed (hr=0x{:08X})", uint32(Hr));
+		return;
+	}
+	CreateViews(Device, InDesc);
+	if (bGenerateMips && SRV)
+	{
+		ComPtr<ID3D11DeviceContext> Context;
+		Device->GetImmediateContext(Context.GetAddressOf());
+		Context->UpdateSubresource(Texture.Get(), 0, nullptr, Image.Pixels.GetData(), Image.GetRowPitch(), 0);
+		Context->GenerateMips(SRV.Get());
+	}
 }
 
 FTexture2D::FTexture2D(ID3D11Device* Device, const D3D11_TEXTURE2D_DESC& InDesc, const void* InitialData, uint32 RowPitch)

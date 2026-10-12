@@ -2,26 +2,37 @@
 #include "Component/DirectionalLightComponent.h"
 #include "Engine/World.h"
 
+#include <algorithm>
 #include <cmath>
 
-FVector UDirectionalLightComponent::GetDirection() const
+FVector UDirectionalLightComponent::GetWorldDirection() const
 {
-	return GetWorldRotation().Quaternion().GetForwardVector().Normalized();
+	const FVector LocalDirection = Direction.Size() < 1.0e-5f
+		? FVector(1.0f, 0.0f, 0.0f) : Direction;
+	return GetWorldRotation().Quaternion().RotateVector(LocalDirection).Normalized();
 }
 
 void UDirectionalLightComponent::SetDirection(const FVector& InDirection)
 {
 	if (!std::isfinite(InDirection.X) || !std::isfinite(InDirection.Y) ||
-		!std::isfinite(InDirection.Z) || InDirection.Size() < 1.0e-5f)
+		!std::isfinite(InDirection.Z))
 		return;
 
-	const FVector Direction = InDirection.Normalized();
-	const float HorizontalLength = std::sqrt(Direction.X * Direction.X + Direction.Y * Direction.Y);
-	const FRotator Rotation(
-		FMath::RadiansToDegrees(std::atan2(-Direction.Z, HorizontalLength)),
-		FMath::RadiansToDegrees(std::atan2(Direction.Y, Direction.X)),
-		GetWorldRotation().Roll);
-	MoveComponent(FVector::ZeroVector, Rotation, false);
+	Direction = InDirection;
+	OnPropertyChanged("Direction");
+}
+
+void UDirectionalLightComponent::OnPropertyChanged(const FString& PropertyName)
+{
+	if (PropertyName == "Direction")
+	{
+		const auto ClampAxis = [](float Value)
+		{
+			return std::isfinite(Value) ? std::clamp(Value, -1.0f, 1.0f) : 0.0f;
+		};
+		Direction = FVector(ClampAxis(Direction.X), ClampAxis(Direction.Y), ClampAxis(Direction.Z));
+	}
+	Super::OnPropertyChanged(PropertyName);
 }
 
 void UDirectionalLightComponent::CreateRenderState()

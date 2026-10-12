@@ -10,6 +10,7 @@
 #include "Editor/EditorUI/ImGuiRenderer.h"
 #include "Editor/Rendering/GridRenderer.h"
 #include "Editor/Rendering/SceneDepthRenderer.h"
+#include "Editor/Rendering/WorldNormalRenderer.h"
 #include "Editor/Rendering/HeightFogRenderer.h"
 #include "Editor/Rendering/FXAARenderer.h"
 #include "Editor/Rendering/FireBallRenderer.h"
@@ -81,15 +82,16 @@ private:
 		bool bEnableFXAA = false;
 		bool bEnableClusteredLightCulling = true;
 		bool bShowSceneDepth = false;
+		bool bShowWorldNormal = false;
 		float SceneDepthRange = 1.0f;
 
 		ERenderingPath RenderingPath = ERenderingPath::Deferred;
 		ELightingModel LightingModel = ELightingModel::Gouraud;
 	};
 	// Common scene passes. Leaves SceneColor/Depth bound for caller overlays and EndRenderPass.
-	bool DeferredRender(FDeferredViewTargets& Targets, const FSceneView& SceneView,
+	bool DeferredRender(FSceneViewTargets& Targets, const FSceneView& SceneView,
 		FSceneRenderer& SceneRenderer, UWorld* TargetWorld, const FSceneRenderOptions& Options);
-	bool ForwardRender(FDeferredViewTargets& Targets, const FSceneView& SceneView,
+	bool ForwardRender(FSceneViewTargets& Targets, const FSceneView& SceneView,
 		FSceneRenderer& SceneRenderer, UWorld* TargetWorld, const FSceneRenderOptions& Options);
 	void RenderSceneText(UWorld* TargetWorld, const FSceneView& SceneView);
 	bool RenderHeightFog(UWorld* TargetWorld, const FSceneView& SceneView, FTexture2D* DepthTarget, FTexture2D* ColorTarget);
@@ -117,6 +119,7 @@ private:
 	TUniquePtr<FOutline> Outline;
 	TUniquePtr<FOutlineRenderer> OutlineRenderer;
 	TUniquePtr<FSceneDepthRenderer> SceneDepthRenderer;
+	TUniquePtr<FWorldNormalRenderer> WorldNormalRenderer;
 	TUniquePtr<FSkyboxRenderer> SkyboxRenderer;
 	TUniquePtr<FHeightFogRenderer> HeightFogRenderer;
 	TUniquePtr<FFXAARenderer> FXAARenderer;

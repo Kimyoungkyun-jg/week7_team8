@@ -20,6 +20,7 @@ enum class EViewportMode : uint8
 	Solid,
 	Wireframe,
 	SceneDepth,
+	WorldNormal,
 	None
 };
 

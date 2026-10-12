@@ -4,8 +4,8 @@
 #include "Render/RenderCommand.h"
 #include "Render/Texture2D.h"
 
-// 한 뷰포트의 최종 색상, GBuffer, 깊이 리소스를 함께 관리한다.
-struct FDeferredViewTargets
+// Forward와 Deferred가 공유하는 뷰포트의 색상, GBuffer, 깊이 리소스를 관리한다.
+struct FSceneViewTargets
 {
 	TUniquePtr<FTexture2D> SceneColor;
 	TUniquePtr<FTexture2D> LightingHDR;

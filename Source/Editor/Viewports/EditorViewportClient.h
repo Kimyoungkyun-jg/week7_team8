@@ -6,7 +6,7 @@
 #include "Math/Rotator.h"
 #include "Math/Vector.h"
 #include "Math/Vector2.h"
-#include "Render/DeferredViewTargets.h"
+#include "Render/SceneViewTargets.h"
 #include "Render/SceneView.h"
 #include "Render/SceneRenderData.h"
 #include "Render/Texture2D.h"
@@ -104,11 +104,12 @@ public:
   FTexture2D* SwapSceneColorAndBind(TUniquePtr<FTexture2D>& Output) { return ViewTargets.SwapSceneColorAndBind(Output); }
   FTexture2D *GetDepthTarget() const { return ViewTargets.Depth.get(); }
 	FSceneRenderData& GetRenderData() { return RenderData; }
-	FDeferredViewTargets& GetViewTargets() { return ViewTargets; }
-  const FDeferredViewTargets &GetViewTargets() const { return ViewTargets; }
+	FSceneViewTargets& GetViewTargets() { return ViewTargets; }
+	const FSceneViewTargets &GetViewTargets() const { return ViewTargets; }
 
   bool IsWireframe() const { return ViewportMode == EViewportMode::Wireframe; }
   bool IsSceneDepth() const { return ViewportMode == EViewportMode::SceneDepth; }
+  bool IsWorldNormal() const { return ViewportMode == EViewportMode::WorldNormal; }
   EViewportMode GetViewportMode() const { return ViewportMode; }
   void SetViewportMode(const EViewportMode InViewportMode) { ViewportMode = InViewportMode; }
   float GetMaxRange() const { return MaxRange; }
@@ -129,7 +130,7 @@ protected:
   FRect Rect{};
   uint32 Width = 0;
   uint32 Height = 0;
-  FDeferredViewTargets ViewTargets;
+	FSceneViewTargets ViewTargets;
 	FSceneRenderData RenderData;
 
   FVector ViewLocation = FVector(0.0f, 0.0f, 0.0f);

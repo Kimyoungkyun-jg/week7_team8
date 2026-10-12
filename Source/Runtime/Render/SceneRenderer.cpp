@@ -2,7 +2,7 @@
 #include "Render/SceneRenderer.h"
 #include "Render/Renderer.h"
 #include "Render/RenderCommand.h"
-#include "Render/DeferredViewTargets.h"
+#include "Render/SceneViewTargets.h"
 #include "Engine/World.h"
 #include "Tasks/Tasks.h"
 #include "Core/Stats/LightweightStats.h"
@@ -80,7 +80,7 @@ void FSceneRenderer::InitViews(FRenderer* Renderer, const FAmbientLightRenderDat
 	}
 }
 
-bool FSceneRenderer::RenderDeferredOpaque(FRenderer* Renderer, const FDeferredViewTargets& Targets, uint32 Width, uint32 Height)
+bool FSceneRenderer::RenderDeferredOpaque(FRenderer* Renderer, const FSceneViewTargets& Targets, uint32 Width, uint32 Height)
 {
 	if (!Renderer || !RenderCommand::BeginGBufferPass(Targets, Width, Height))
 		return false;
@@ -101,7 +101,7 @@ bool FSceneRenderer::RenderForwardOpaque(FRenderer* Renderer, ELightingModel Lig
 		RenderData.VisibleSpotLights, LightingModel, bEnableClusteredLightCulling);
 }
 
-void FSceneRenderer::RenderDeferredLighting(FRenderer* Renderer, const FDeferredViewTargets& Targets)
+void FSceneRenderer::RenderDeferredLighting(FRenderer* Renderer, const FSceneViewTargets& Targets)
 {
 	if (Renderer)
 		Renderer->DrawDeferredLighting(View, Targets, RenderData.AmbientLight,
@@ -109,7 +109,7 @@ void FSceneRenderer::RenderDeferredLighting(FRenderer* Renderer, const FDeferred
 			RenderData.VisiblePointLights, RenderData.VisibleSpotLights);
 }
 
-void FSceneRenderer::RenderToneMap(FRenderer* Renderer, const FDeferredViewTargets& Targets)
+void FSceneRenderer::RenderToneMap(FRenderer* Renderer, const FSceneViewTargets& Targets)
 {
 	if (Renderer)
 		Renderer->DrawToneMap(Targets);

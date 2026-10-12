@@ -1,5 +1,5 @@
 #include "EnginePCH.h"
-#include "Render/DeferredViewTargets.h"
+#include "Render/SceneViewTargets.h"
 #include "RenderCommand.h"
 
 #include "PipelineState.h"
@@ -234,7 +234,7 @@ void RenderCommand::UnbindShaderResources(uint32 FirstSlot, uint32 Count, EShade
         RenderDevice->GetContext()->PSSetShaderResources(FirstSlot, Count, NullResources);
 }
 
-bool RenderCommand::BeginGBufferPass(const FDeferredViewTargets& Targets, uint32 Width, uint32 Height)
+bool RenderCommand::BeginGBufferPass(const FSceneViewTargets& Targets, uint32 Width, uint32 Height)
 {
 	if (Width == 0 || Height == 0 || !Targets.IsValidFor(Width, Height))
 		return false;
@@ -273,6 +273,28 @@ void RenderCommand::BeginRenderPass(FTexture2D* ColorTarget, FTexture2D* DepthTa
 
 	RenderDevice->GetContext()->OMSetRenderTargets(RTV ? 1 : 0, RTV ? &RTV : nullptr, DSV);
 	SetViewport(0, 0, Width, Height);
+}
+
+bool RenderCommand::BeginForwardOpaquePass(const FSceneViewTargets& Targets, uint32 Width, uint32 Height,
+	bool bWriteWorldNormal)
+{
+	if (!Targets.LightingHDR || !Targets.Depth || !Targets.LightingHDR->GetRTV() || !Targets.Depth->GetDSV() ||
+		(bWriteWorldNormal && (!Targets.NormalRoughness || !Targets.NormalRoughness->GetRTV())))
+		return false;
+
+	ID3D11DeviceContext* Context = RenderDevice->GetContext();
+	const float ClearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+	Context->ClearRenderTargetView(Targets.LightingHDR->GetRTV(), ClearColor);
+	Context->ClearDepthStencilView(Targets.Depth->GetDSV(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+	ID3D11RenderTargetView* RTVs[2] = { Targets.LightingHDR->GetRTV(), nullptr };
+	if (bWriteWorldNormal)
+	{
+		Context->ClearRenderTargetView(Targets.NormalRoughness->GetRTV(), ClearColor);
+		RTVs[1] = Targets.NormalRoughness->GetRTV();
+	}
+	Context->OMSetRenderTargets(bWriteWorldNormal ? 2 : 1, RTVs, Targets.Depth->GetDSV());
+	SetViewport(0, 0, Width, Height);
+	return true;
 }
 
 void RenderCommand::BindRenderPassNoClear(FTexture2D* ColorTarget, FTexture2D* DepthTarget, uint32 Width, uint32 Height)

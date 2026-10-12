@@ -30,10 +30,10 @@ class FRenderer
 {
 public:
 	bool Init();
-	void DrawDeferredLighting(const FSceneView& View, const struct FDeferredViewTargets& Targets,
+	void DrawDeferredLighting(const FSceneView& View, const struct FSceneViewTargets& Targets,
 		const FAmbientLightRenderData& AmbientLight, const TArray<FDirectionalLightRenderData>& DirectionalLights,
 		const TArray<FPointLightRenderData>& PointLights, const TArray<FSpotLightRenderData>& SpotLights);
-	void DrawToneMap(const struct FDeferredViewTargets& Targets);
+	void DrawToneMap(const struct FSceneViewTargets& Targets);
 
 	// 시점 상수 버퍼 및 렌더링 상태 설정
 	void SetupView(const FSceneView& View);

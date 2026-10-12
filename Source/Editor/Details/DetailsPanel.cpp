@@ -357,6 +357,7 @@ namespace
 			UMaterial* Override = MeshComponent->GetOverrideMaterial(Slot);
 			UMaterial* Effective = MeshComponent->GetMaterial(Slot);
 			UTexture2D* Texture = (Effective && Effective->Textures.Num() > 0) ? Effective->Textures[0] : nullptr;
+			UTexture2D* NormalTexture = (Effective && Effective->Textures.Num() > 1) ? Effective->Textures[1] : nullptr;
 
 			ImGui::SameLine();
 
@@ -442,6 +443,52 @@ namespace
 					{
 						ImGui::TextDisabled("(Empty)");
 					}
+
+					ImGui::TableNextRow();
+					ImGui::TableSetColumnIndex(0);
+					ImGui::Text("Normal Map");
+					ImGui::TableSetColumnIndex(1);
+					ImGui::PushID("NormalMap");
+					if (NormalTexture && NormalTexture->GetResource())
+						ImGui::Image((ImTextureID)NormalTexture->GetResource()->GetSRV(), { ThumbnailSize, ThumbnailSize });
+					else
+						ImGui::Button("Empty", { ThumbnailSize, ThumbnailSize });
+					if (ImGui::BeginDragDropTarget())
+					{
+						if (const ImGuiPayload* Payload = ImGui::AcceptDragDropPayload(EditorDragDrop::Texture))
+						{
+							UTexture2D* DroppedTexture = *static_cast<UTexture2D**>(Payload->Data);
+							Override = EnsureMaterialOverride(MeshComponent, Slot, Effective, Override);
+							if (Override)
+							{
+								while (Override->Textures.Num() < 2) Override->Textures.Add(nullptr);
+								Override->Textures[1] = DroppedTexture;
+								NormalTexture = DroppedTexture;
+								Effective = Override;
+								MeshComponent->OnPropertyChanged("OverrideMaterials");
+							}
+						}
+						ImGui::EndDragDropTarget();
+					}
+					ImGui::SameLine();
+					if (NormalTexture)
+					{
+						ImGui::TextWrapped("%s", fs::path(NormalTexture->GetPath()).filename().string().c_str());
+						if (ImGui::SmallButton("Clear"))
+						{
+							Override = EnsureMaterialOverride(MeshComponent, Slot, Effective, Override);
+							if (Override)
+							{
+								Override->Textures[1] = nullptr;
+								NormalTexture = nullptr;
+								Effective = Override;
+								MeshComponent->OnPropertyChanged("OverrideMaterials");
+							}
+						}
+					}
+					else
+						ImGui::TextDisabled("(Empty)");
+					ImGui::PopID();
 
 					ImGui::TableNextRow();
 
@@ -823,6 +870,8 @@ namespace
 			{
 				for (const FProperty& Property : Class->GetProperties())
 				{
+					if (Class == UDirectionalLightComponent::StaticClass() && Property.Name == "Direction")
+						continue; // 방향은 아래의 X/Y/Z 컨트롤로 표시한다.
 					DrawProperty(Object, Property, CustomFont);
 				}
 				if (Class == UDirectionalLightComponent::StaticClass())

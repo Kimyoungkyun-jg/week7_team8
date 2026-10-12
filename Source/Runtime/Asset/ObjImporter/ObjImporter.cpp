@@ -14,6 +14,8 @@
 #include "Asset/ObjImporter/StaticMeshBake.h"
 
 #include <algorithm>
+#include <cctype>
+#include <cstdlib>
 
 namespace
 {
@@ -111,7 +113,120 @@ namespace
 		return true;
 	}
 
-	bool ParseMaterial(const FString& Path, TArray<FObjMaterialInfo>& Out)
+	// MTL 경로가 오래된 경우 MTL/OBJ 폴더의 동일 이름 텍스처도 찾는다.
+	bool ResolveTexturePath(const FString& MtlPath, const FString& ObjPath, FStringView Reference, FString& Out)
+	{
+		if (Reference.empty()) return false;
+		std::filesystem::path NamedPath(Reference);
+		std::filesystem::path MtlDirectory = std::filesystem::path(MtlPath).parent_path();
+		std::filesystem::path Original = NamedPath.is_absolute() ? NamedPath : MtlDirectory / NamedPath;
+		std::error_code Error;
+		if (std::filesystem::is_regular_file(Original, Error))
+		{
+			Out = Original.lexically_normal().generic_string();
+			return true;
+		}
+		const std::filesystem::path Directories[] = {
+			Original.parent_path(), MtlDirectory, std::filesystem::path(ObjPath).parent_path() };
+		const char* Extensions[] = { ".dds", ".png", ".jpg", ".jpeg", ".tga", ".bmp" };
+		for (const std::filesystem::path& Directory : Directories)
+		{
+			std::filesystem::path Candidate = Directory / NamedPath.filename();
+			Error.clear();
+			if (std::filesystem::is_regular_file(Candidate, Error))
+			{
+				Out = Candidate.lexically_normal().generic_string();
+				return true;
+			}
+			for (const char* Extension : Extensions)
+			{
+				Candidate.replace_extension(Extension);
+				Error.clear();
+				if (std::filesystem::is_regular_file(Candidate, Error))
+				{
+					Out = Candidate.lexically_normal().generic_string();
+					return true;
+				}
+			}
+		}
+		Out = Original.lexically_normal().generic_string();
+		return true;
+	}
+
+	bool ParseTextureReference(std::istringstream& Stream, FString& Out)
+	{
+		FString Remainder;
+		std::getline(Stream, Remainder);
+		const size_t Comment = Remainder.find('#');
+		if (Comment != FString::npos) Remainder.resize(Comment);
+		std::istringstream Options(Remainder);
+		FString Token;
+		while (Options >> Token)
+		{
+			if (Token.empty() || Token[0] != '-')
+			{
+				FString Rest;
+				std::getline(Options, Rest);
+				Out = Token + Rest;
+				while (!Out.empty() && std::isspace(static_cast<unsigned char>(Out.back()))) Out.pop_back();
+				return !Out.empty();
+			}
+			if (Token == "-o" || Token == "-s" || Token == "-t")
+			{
+				for (int Index = 0; Index < 3; ++Index)
+				{
+					const std::streampos Position = Options.tellg();
+					FString Value;
+					if (!(Options >> Value)) break;
+					char* End = nullptr;
+					std::strtof(Value.c_str(), &End);
+					if (End == Value.c_str() || *End != '\0')
+					{
+						Options.clear();
+						Options.seekg(Position);
+						break;
+					}
+				}
+			}
+			else if (Token == "-bm" || Token == "-clamp" || Token == "-blendu" ||
+				Token == "-blendv" || Token == "-imfchan" || Token == "-texres" || Token == "-type")
+			{
+				if (!(Options >> Token)) return false;
+			}
+			else return false;
+		}
+		return false;
+	}
+
+	bool IsBakeCurrent(const FString& ObjPath, const FString& BinPath)
+	{
+		std::error_code Error;
+		const auto BinTime = std::filesystem::last_write_time(BinPath, Error);
+		if (Error) return false;
+		const auto ObjTime = std::filesystem::last_write_time(ObjPath, Error);
+		if (Error || ObjTime > BinTime) return false;
+
+		std::ifstream Obj(ObjPath);
+		if (!Obj) return false;
+		FString Line;
+		while (std::getline(Obj, Line))
+		{
+			std::istringstream Stream(Line);
+			FString Keyword, Mtl;
+			if (!(Stream >> Keyword) || Keyword != "mtllib") continue;
+			while (Stream >> Mtl)
+			{
+				FString MtlPath;
+				if (!TransformPath(ObjPath, Mtl, MtlPath)) return false;
+				Error.clear();
+				const auto MtlTime = std::filesystem::last_write_time(MtlPath, Error);
+				if (Error || MtlTime > BinTime) return false;
+			}
+		}
+		return true;
+	}
+
+	bool ParseMaterial(const FString& Path, const FString& ObjPath, TArray<FObjMaterialInfo>& Out)
 	{
 		std::ifstream File(Path);
 		if (!File.is_open())
@@ -166,9 +281,18 @@ namespace
 			else if (Keyword == "map_Kd")
 			{
 				FString MapKd;
-				if (!(Stream >> MapKd) || !TransformPath(Path, MapKd, MtlInfo.MapKd))
+				if (!ParseTextureReference(Stream, MapKd) || !ResolveTexturePath(Path, ObjPath, MapKd, MtlInfo.MapKd))
 				{
 					HTR_LOG(Warning, "[MTL] {}:{}: invalid map_Kd '{}'", Path, LineNumber, Line);
+					return false;
+				}
+			}
+			else if (Keyword == "map_bump" || Keyword == "map_Bump" || Keyword == "bump" || Keyword == "norm")
+			{
+				FString MapNormal;
+				if (!ParseTextureReference(Stream, MapNormal) || !ResolveTexturePath(Path, ObjPath, MapNormal, MtlInfo.MapNormal))
+				{
+					HTR_LOG(Warning, "[MTL] {}:{}: invalid normal map '{}'", Path, LineNumber, Line);
 					return false;
 				}
 			}
@@ -350,7 +474,7 @@ bool FObjImporter::ParseObj(const FString& Path, FObjInfo& Out)
 	{
 		FString MtlPath;
 		if (!TransformPath(Path, Mtl, MtlPath) ||
-			!ParseMaterial(MtlPath, Info.MaterialInfos))
+			!ParseMaterial(MtlPath, Path, Info.MaterialInfos))
 		{
 			HTR_LOG(Warning, "[OBJ] {}: mtllib '{}' skipped", Path, Mtl);
 		}
@@ -389,6 +513,7 @@ bool FObjImporter::Cook(const FObjInfo& Raw, FStaticMeshData& Out)
 		CookedMtl.Name = RawMtl.Name;
 		CookedMtl.BaseColor.Set(RawMtl.Kd, RawMtl.D);
 		CookedMtl.DiffuseTexturePath = RawMtl.MapKd;
+		CookedMtl.NormalTexturePath = RawMtl.MapNormal;
 		Cooked.MaterialSlots.Add(std::move(CookedMtl));
 	}
 
@@ -487,6 +612,7 @@ bool FObjImporter::Cook(const FObjInfo& Raw, FStaticMeshData& Out)
 		HTR_LOG(Error, "[OBJ] {}: {}", Raw.Path, Error);
 		return false;
 	}
+	Cooked.RecalculateTangents();
 
 	Out = std::move(Cooked);
 	return true;
@@ -497,10 +623,9 @@ TUniquePtr<FStaticMeshData> FObjImporter::LoadStaticMeshData(const FString& Path
 	const FString BinPath = Path + ".bin";
 
 	// .bin 파일 읽기
-	if (TUniquePtr<FStaticMeshData> Baked = FStaticMeshBake::ReadBaked(BinPath))
-	{
-		return Baked;
-	}
+	if (IsBakeCurrent(Path, BinPath))
+		if (TUniquePtr<FStaticMeshData> Baked = FStaticMeshBake::ReadBaked(BinPath))
+			return Baked;
 
 	FObjInfo Info;
 	TUniquePtr<FStaticMeshData> Data = MakeUnique<FStaticMeshData>();

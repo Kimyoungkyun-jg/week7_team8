@@ -6,7 +6,7 @@
 #include "Math/Matrix.h"
 #include "Render/SceneView.h"
 #include "Render/SceneRenderData.h"
-#include "Render/DeferredViewTargets.h"
+#include "Render/SceneViewTargets.h"
 
 class UWorld;
 class UGameInstance;
@@ -54,8 +54,8 @@ public:
 	FTexture2D* SwapSceneColorAndBind(TUniquePtr<FTexture2D>& Output) { return ViewTargets.SwapSceneColorAndBind(Output); }
 	class FTexture2D* GetDepthTarget() const { return ViewTargets.Depth.get(); }
 	FSceneRenderData& GetRenderData() { return RenderData; }
-	FDeferredViewTargets& GetViewTargets() { return ViewTargets; }
-	const FDeferredViewTargets& GetViewTargets() const { return ViewTargets; }
+	FSceneViewTargets& GetViewTargets() { return ViewTargets; }
+	const FSceneViewTargets& GetViewTargets() const { return ViewTargets; }
 
 	void SetGameInstance(UGameInstance* InGameInstance) { GameInstance = InGameInstance; }
 	UGameInstance* GetGameInstance() const { return GameInstance; }
@@ -102,6 +102,6 @@ private:
 	// 렌더 타깃 버퍼
 	uint32 Width = 0;
 	uint32 Height = 0;
-	FDeferredViewTargets ViewTargets;
+	FSceneViewTargets ViewTargets;
 	FSceneRenderData RenderData;
 };

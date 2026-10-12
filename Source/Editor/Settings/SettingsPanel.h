@@ -39,6 +39,7 @@ struct FEditorSettings
     float ViewOrthoWidth[4]{};
     int32 ViewPreset[4]{-1,-1,-1,-1};
     int32 ViewWireframe[4]{-1,-1,-1,-1};
+    int32 ViewMode[4]{-1,-1,-1,-1};
     // View별 카메라 Transform은 Quaternion 그대로 저장해 재실행 후 같은 시점을 복원한다.
     // 구형 editor.ini에 키가 없으면 Saved가 false로 남아 Adapter의 초기 Transform을 유지한다.
     FVector ViewLocation[4]{};
