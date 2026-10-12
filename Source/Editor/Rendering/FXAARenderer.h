@@ -18,7 +18,8 @@ public:
 	// Shader와 상수 버퍼를 준비한다.
 	void Init(FRenderer* InRenderer);
 	// Color Buffer에 있는 값을 바탕으로 FXAA를 처리한다.
-	bool OnRender(const FSceneView& View, FTexture2D* DepthTarget, FTexture2D* ColorTarget);
+	bool PrepareOutput(FTexture2D* ColorTarget);
+	bool OnRender(FTexture2D* ColorTarget);
 	TUniquePtr<FTexture2D>& GetOutputTarget() { return CachedColorBuffer; }
 
 private:

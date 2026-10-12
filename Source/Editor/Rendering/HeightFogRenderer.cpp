@@ -43,15 +43,12 @@ bool FHeightFogRenderer::OnRender(const FSceneView& View, FTexture2D* DepthTarge
 									 std::max(Settings.FogCutoffDistance, 0.0f), 1.0f / Width, 1.0f / Height);
 
 	RenderCommand::BindPipelineState(PipelineState);
-	RenderCommand::SetRenderTargets(ColorTarget, nullptr);
-	RenderCommand::SetViewport(0, 0, Width, Height);
 	RenderCommand::BindVertexBuffer(nullptr);
 	RenderCommand::UpdateBufferData(ConstantBuffer.get(), &Data, sizeof(Data));
 	RenderCommand::BindConstantBuffer(0, ConstantBuffer.get(), EShaderBindFlagBits::Pixel);
 	RenderCommand::BindShaderResource(0, DepthTarget, EShaderBindFlagBits::Pixel);
 	RenderCommand::Draw(6);
 	RenderCommand::BindShaderResource(0, static_cast<FTexture2D*>(nullptr), EShaderBindFlagBits::Pixel);
-	RenderCommand::SetRenderTargets(ColorTarget, DepthTarget);
 	return true;
 }
 

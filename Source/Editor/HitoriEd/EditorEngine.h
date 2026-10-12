@@ -31,6 +31,8 @@
 #include "Editor/Outliner/OutlinerPanel.h"
 
 #include "Render/SkyboxRenderer.h"
+#include "Render/SceneRenderOptions.h"
+#include "Render/RenderGraph/RenderGraph.h"
 
 #include "Serialization/JsonArchive.h"
 //Temp
@@ -38,6 +40,7 @@
 #include "Text/TextRenderer.h"
 #include <Editor\Viewports\EditorViewportClient.h>
 #include <Container\Array.h>
+#include <functional>
 
 class FSceneRenderer;
 class FGameViewportClient;
@@ -75,24 +78,10 @@ private:
 	void TickWorld(float DeltaTime);
 	// 한 번 캡처한 월드 결과를 재사용해 현재 레이아웃의 각 View를 렌더한다.
 	void RenderViewports();
-	struct FSceneRenderOptions
-	{
-		bool bDrawPrimitives = true;
-		bool bEnableFog = true;
-		bool bEnableFXAA = false;
-		bool bEnableClusteredLightCulling = true;
-		bool bShowSceneDepth = false;
-		bool bShowWorldNormal = false;
-		float SceneDepthRange = 1.0f;
-
-		ERenderingPath RenderingPath = ERenderingPath::Deferred;
-		ELightingModel LightingModel = ELightingModel::Gouraud;
-	};
-	// Common scene passes. Leaves SceneColor/Depth bound for caller overlays and EndRenderPass.
-	bool DeferredRender(FSceneViewTargets& Targets, const FSceneView& SceneView,
-		FSceneRenderer& SceneRenderer, UWorld* TargetWorld, const FSceneRenderOptions& Options);
-	bool ForwardRender(FSceneViewTargets& Targets, const FSceneView& SceneView,
-		FSceneRenderer& SceneRenderer, UWorld* TargetWorld, const FSceneRenderOptions& Options);
+	// 씬, 화면 효과, 뷰포트 오버레이를 한 그래프에 등록해 실행한다.
+	bool RenderScene(FSceneViewTargets& Targets, const FSceneView& SceneView,
+		FSceneRenderer& SceneRenderer, UWorld* TargetWorld, const FSceneRenderOptions& Options,
+		const std::function<bool(FRenderGraphBuilder&, FRenderGraphTextureRef, FRenderGraphTextureRef)>& AddOverlays);
 	void RenderSceneText(UWorld* TargetWorld, const FSceneView& SceneView);
 	bool RenderHeightFog(UWorld* TargetWorld, const FSceneView& SceneView, FTexture2D* DepthTarget, FTexture2D* ColorTarget);
 	bool RenderFireBall(UWorld* TargetWorld, const FSceneView& SceneView, FTexture2D* DepthTarget, FTexture2D* ColorTarget);

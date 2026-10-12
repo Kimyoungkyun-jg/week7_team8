@@ -2,7 +2,9 @@
 #include "Render/SceneRenderer.h"
 #include "Render/Renderer.h"
 #include "Render/RenderCommand.h"
+#include "Render/RenderGraph/RenderGraph.h"
 #include "Render/SceneViewTargets.h"
+#include "Render/SkyboxRenderer.h"
 #include "Engine/World.h"
 #include "Tasks/Tasks.h"
 #include "Core/Stats/LightweightStats.h"
@@ -11,6 +13,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <utility>
 
 DECLARE_CYCLE_STAT("Frustum Cull", STAT_FrustumCull);
 DECLARE_CYCLE_STAT("Gather Elements", STAT_GatherElements);
@@ -90,41 +93,111 @@ void FSceneRenderer::InitViews(FRenderer* Renderer, const FAmbientLightRenderDat
 	}
 }
 
-bool FSceneRenderer::RenderDeferredOpaque(FRenderer* Renderer, const FSceneViewTargets& Targets, uint32 Width, uint32 Height)
+bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Renderer, FSceneViewTargets& Targets,
+	const FSceneRenderOptions& Options, FSkyboxRenderer* Skybox)
 {
-	if (!Renderer || !RenderCommand::BeginGBufferPass(Targets, Width, Height))
+	if (!World || !Renderer || !Targets.SceneColor)
+		return false;
+	const uint32 Width = Targets.SceneColor->GetWidth();
+	const uint32 Height = Targets.SceneColor->GetHeight();
+	if (!Width || !Height || !Targets.IsValidFor(Width, Height))
 		return false;
 
-	PrepareDrawData(Renderer, RenderData);
-	Renderer->RenderDeferredOpaque(View, RenderData.RenderQueue, true);
-	RenderCommand::EndRenderPass();
+	bCorePassSucceeded = true;
+	const auto SceneColor = Graph.ImportTexture(Targets.SceneColor.get(), "SceneColor");
+	const auto LightingHDR = Graph.ImportTexture(Targets.LightingHDR.get(), "LightingHDR");
+	const auto BaseColor = Graph.ImportTexture(Targets.BaseColorMetallic.get(), "BaseColorMetallic");
+	const auto Normal = Graph.ImportTexture(Targets.NormalRoughness.get(), "NormalRoughness");
+	const auto Depth = Graph.ImportTexture(Targets.Depth.get(), "SceneDepth");
+	if (!SceneColor || !LightingHDR || !BaseColor || !Normal || !Depth)
+		return false;
+
+	if (Options.RenderingPath == ERenderingPath::Deferred)
+	{
+		if (Options.bDrawPrimitives)
+		{
+			FRenderGraphRasterPassDesc GBuffer{};
+			GBuffer.Name = "GBuffer";
+			GBuffer.ColorAttachments = {
+				{ BaseColor, ERenderGraphLoadAction::Clear, { 0.0f, 0.0f, 0.0f, 0.0f } },
+				{ Normal, ERenderGraphLoadAction::Clear, { 0.0f, 0.0f, 0.0f, 0.0f } }
+			};
+			GBuffer.DepthAttachment = { Depth, ERenderGraphLoadAction::Clear, 1.0f, 0 };
+			if (!Graph.AddRasterPass(std::move(GBuffer), [this, Renderer]
+				{
+					PrepareDrawData(Renderer, RenderData);
+					Renderer->RenderDeferredOpaque(View, RenderData.RenderQueue, true);
+				})) return false;
+
+			FRenderGraphRasterPassDesc Lighting{};
+			Lighting.Name = "DeferredLighting";
+			Lighting.ReadTextures = { BaseColor, Normal, Depth };
+			Lighting.ColorAttachments = {
+				{ LightingHDR, ERenderGraphLoadAction::Clear, { 0.0f, 0.0f, 0.0f, 1.0f } }
+			};
+			if (!Graph.AddRasterPass(std::move(Lighting), [this, Renderer, &Targets]
+				{
+					Renderer->DrawDeferredLighting(View, Targets, RenderData.AmbientLight,
+						RenderData.VisibleDirectionalLights, RenderData.VisiblePointLights,
+						RenderData.VisibleSpotLights,
+						RenderData.bHasSkyLight ? &RenderData.SkyLight : nullptr);
+				})) return false;
+		}
+		else
+		{
+			FRenderGraphRasterPassDesc ClearDepth{};
+			ClearDepth.Name = "ClearSceneDepth";
+			ClearDepth.DepthAttachment = { Depth, ERenderGraphLoadAction::Clear, 1.0f, 0 };
+			if (!Graph.AddRasterPass(std::move(ClearDepth), [] {})) return false;
+		}
+	}
+	else
+	{
+		FRenderGraphRasterPassDesc Forward{};
+		Forward.Name = "ForwardOpaque";
+		Forward.ColorAttachments = {
+			{ LightingHDR, ERenderGraphLoadAction::Clear, { 0.0f, 0.0f, 0.0f, 1.0f } }
+		};
+		if (Options.bShowWorldNormal)
+			Forward.ColorAttachments.push_back(
+				{ Normal, ERenderGraphLoadAction::Clear, { 0.0f, 0.0f, 0.0f, 1.0f } });
+		Forward.DepthAttachment = { Depth, ERenderGraphLoadAction::Clear, 1.0f, 0 };
+		if (!Graph.AddRasterPass(std::move(Forward), [this, Renderer, &Options]
+			{
+				if (!Options.bDrawPrimitives) return;
+				PrepareDrawData(Renderer, RenderData);
+				bCorePassSucceeded = Renderer->RenderForwardOpaque(View, RenderData.RenderQueue,
+					RenderData.AmbientLight, RenderData.VisibleDirectionalLights,
+					RenderData.VisiblePointLights, RenderData.VisibleSpotLights,
+					Options.LightingModel, Options.bEnableClusteredLightCulling,
+					RenderData.bHasSkyLight ? &RenderData.SkyLight : nullptr);
+			})) return false;
+	}
+
+	FRenderGraphRasterPassDesc Sky{};
+	Sky.Name = "Skybox";
+	Sky.ColorAttachments = {
+		{ SceneColor, ERenderGraphLoadAction::Clear, { 0.0f, 0.0f, 0.0f, 1.0f } }
+	};
+	if (!Graph.AddRasterPass(std::move(Sky), [this, Skybox]
+		{
+			if (bCorePassSucceeded && Skybox)
+				Skybox->OnRender(View.ViewProjectionMatrix, View.ViewLocation);
+		})) return false;
+	if (Options.bDrawPrimitives)
+	{
+		FRenderGraphRasterPassDesc ToneMap{};
+		ToneMap.Name = "ToneMap";
+		ToneMap.ReadTextures = { LightingHDR, Depth };
+		ToneMap.ColorAttachments = { { SceneColor, ERenderGraphLoadAction::Load } };
+		if (!Graph.AddRasterPass(std::move(ToneMap), [this, Renderer, &Targets]
+			{
+				if (bCorePassSucceeded)
+					Renderer->DrawToneMap(Targets);
+			})) return false;
+	}
+
 	return true;
-}
-
-bool FSceneRenderer::RenderForwardOpaque(FRenderer* Renderer, ELightingModel LightingModel,
-	bool bEnableClusteredLightCulling)
-{
-	if (!Renderer) return false;
-	PrepareDrawData(Renderer, RenderData);
-	return Renderer->RenderForwardOpaque(View, RenderData.RenderQueue, RenderData.AmbientLight,
-		RenderData.VisibleDirectionalLights, RenderData.VisiblePointLights,
-		RenderData.VisibleSpotLights, LightingModel, bEnableClusteredLightCulling,
-		RenderData.bHasSkyLight ? &RenderData.SkyLight : nullptr);
-}
-
-void FSceneRenderer::RenderDeferredLighting(FRenderer* Renderer, const FSceneViewTargets& Targets)
-{
-	if (Renderer)
-		Renderer->DrawDeferredLighting(View, Targets, RenderData.AmbientLight,
-			RenderData.VisibleDirectionalLights,
-			RenderData.VisiblePointLights, RenderData.VisibleSpotLights,
-			RenderData.bHasSkyLight ? &RenderData.SkyLight : nullptr);
-}
-
-void FSceneRenderer::RenderToneMap(FRenderer* Renderer, const FSceneViewTargets& Targets)
-{
-	if (Renderer)
-		Renderer->DrawToneMap(Targets);
 }
 
 // 반투명 렌더링

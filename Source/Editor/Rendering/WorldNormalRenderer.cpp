@@ -20,13 +20,11 @@ bool FWorldNormalRenderer::OnRender(FTexture2D* NormalTarget, FTexture2D* DepthT
 		!DepthTarget || !DepthTarget->GetSRV() || !ColorTarget || !ColorTarget->GetRTV())
 		return false;
 
-	RenderCommand::SetRenderTargets(ColorTarget, nullptr);
 	RenderCommand::BindPipelineState(PipelineState);
 	RenderCommand::BindVertexBuffer(nullptr);
 	RenderCommand::BindShaderResource(0, NormalTarget, EShaderBindFlagBits::Pixel);
 	RenderCommand::BindShaderResource(1, DepthTarget, EShaderBindFlagBits::Pixel);
 	RenderCommand::Draw(3);
 	RenderCommand::UnbindShaderResources(0, 2, EShaderBindFlagBits::Pixel);
-	RenderCommand::SetRenderTargets(ColorTarget, DepthTarget);
 	return true;
 }

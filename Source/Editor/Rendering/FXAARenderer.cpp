@@ -27,8 +27,9 @@ void FFXAARenderer::Init(FRenderer* InRenderer)
 }
 
 // Color Buffer에 있는 값을 바탕으로 FXAA를 처리한다.
-bool FFXAARenderer::OnRender(const FSceneView& View, FTexture2D* DepthTarget, FTexture2D* ColorTarget)
+bool FFXAARenderer::PrepareOutput(FTexture2D* ColorTarget)
 {
+	if (!ColorTarget) return false;
 	const uint32 Width = ColorTarget->GetWidth();
 	const uint32 Height = ColorTarget->GetHeight();
 
@@ -51,15 +52,19 @@ bool FFXAARenderer::OnRender(const FSceneView& View, FTexture2D* DepthTarget, FT
 			return false;
 		CachedColorBuffer = std::move(NewTarget);
 	}
+	return true;
+}
 
+bool FFXAARenderer::OnRender(FTexture2D* ColorTarget)
+{
+	if (!ColorTarget || !CachedColorBuffer || !ConstantBuffer) return false;
+	const uint32 Width = ColorTarget->GetWidth();
+	const uint32 Height = ColorTarget->GetHeight();
 	FFXAAData Data{};
 	Data.InvWidth = 1.0f / Width;
 	Data.InvHeight = 1.0f / Height;
 
 	RenderCommand::BindPipelineState(FXAAPipelineState);
-	RenderCommand::EndRenderPass();
-	RenderCommand::BindShaderResource(0, static_cast<FTexture2D*>(nullptr), EShaderBindFlagBits::Pixel);
-	RenderCommand::BindRenderPassNoClear(CachedColorBuffer.get(), nullptr, Width, Height);
 	RenderCommand::BindVertexBuffer(nullptr);
 	RenderCommand::BindSamplerState(0, ESamplerState::LinearClamp, EShaderBindFlagBits::Pixel);
 	RenderCommand::UpdateBufferData(ConstantBuffer.get(), &Data, sizeof(Data));
@@ -67,6 +72,5 @@ bool FFXAARenderer::OnRender(const FSceneView& View, FTexture2D* DepthTarget, FT
 	RenderCommand::BindShaderResource(0, ColorTarget, EShaderBindFlagBits::Pixel);
 	RenderCommand::Draw(3);
 	RenderCommand::BindShaderResource(0, static_cast<FTexture2D*>(nullptr), EShaderBindFlagBits::Pixel);
-	RenderCommand::EndRenderPass();
 	return true;
 }

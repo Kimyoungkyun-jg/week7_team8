@@ -36,14 +36,11 @@ bool FFireBallRenderer::OnRender(const FSceneView& View, FTexture2D* DepthTarget
 	Data.RadiusFallOff = InFireBallData.RadiusFallOff;
 
 	RenderCommand::BindPipelineState(*PipelineState);
-	RenderCommand::SetRenderTargets(ColorTarget, nullptr);
-	RenderCommand::SetViewport(0, 0, Width, Height);
 	RenderCommand::BindVertexBuffer(nullptr);
 	RenderCommand::UpdateBufferData(ConstantBuffer.get(), &Data, sizeof(Data));
 	RenderCommand::BindConstantBuffer(0, ConstantBuffer.get(), EShaderBindFlagBits::Pixel);
 	RenderCommand::BindShaderResource(0, DepthTarget, EShaderBindFlagBits::Pixel);
 	RenderCommand::Draw(6);
 	RenderCommand::BindShaderResource(0, static_cast<FTexture2D*>(nullptr), EShaderBindFlagBits::Pixel);
-	RenderCommand::SetRenderTargets(ColorTarget, DepthTarget);
 	return true;
 }

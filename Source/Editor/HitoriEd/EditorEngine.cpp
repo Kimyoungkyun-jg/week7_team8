@@ -49,6 +49,18 @@ DECLARE_CYCLE_STAT("Editor Tick", STAT_EditorTick);
 DECLARE_CYCLE_STAT("Capture World", STAT_CaptureWorld);
 DECLARE_CYCLE_STAT("Build Render Queue", STAT_BuildRenderQueue);
 DECLARE_CYCLE_STAT("ImGui", STAT_ImGui);
+
+FRenderGraphRasterPassDesc MakeViewportPass(const char* Name,
+	FRenderGraphTextureRef Color, FRenderGraphTextureRef Depth = {},
+	ERenderGraphLoadAction DepthLoad = ERenderGraphLoadAction::Load)
+{
+	FRenderGraphRasterPassDesc Pass{};
+	Pass.Name = Name;
+	Pass.ColorAttachments = { { Color, ERenderGraphLoadAction::Load } };
+	if (Depth)
+		Pass.DepthAttachment = { Depth, DepthLoad, 1.0f, 0 };
+	return Pass;
+}
 } // namespace
 
 #include "Core/SplashScreen.h"
@@ -709,36 +721,34 @@ void UEditorEngine::RenderGameFrame(FGameViewportClient* GameClient, const FScen
 		Options.bEnableClusteredLightCulling = SettingsPanel->GetSettings().bEnableClusteredLightCulling;
 	}
 	FSceneViewTargets& Targets = GameClient->GetViewTargets();
-	const bool bRendered = Options.RenderingPath == ERenderingPath::Forward
-		? ForwardRender(Targets, SceneView, SceneRenderer, GameClient->GetWorld(), Options)
-		: DeferredRender(Targets, SceneView, SceneRenderer, GameClient->GetWorld(), Options);
-	if (!bRendered)
-		return;
-	FTexture2D* DepthTarget = Targets.Depth.get();
-	const uint32 Width = Targets.SceneColor->GetWidth();
-	const uint32 Height = Targets.SceneColor->GetHeight();
-
-	if (bIsSIEMode)
+	const bool bRendered = RenderScene(Targets, SceneView, SceneRenderer, GameClient->GetWorld(), Options,
+		[this, &Targets, &SceneView, bIsSIEMode](FRenderGraphBuilder& Graph,
+			FRenderGraphTextureRef Color, FRenderGraphTextureRef Depth)
 	{
-		const FViewportSettings ViewportSetting{ 0, 0, Width, Height, 0.0f, 1.0f };
-
-		if (Outline->GetTarget()) {
-			OutlineRenderer->OnRender(*Outline, SceneView.ViewProjectionMatrix,
-				ViewportSetting);
-		}
-
-		if (Gizmo->GetTarget()) {
-			RenderCommand::ClearDepthStencil(DepthTarget);
-			GizmoRenderer->OnRender(*Gizmo, SceneView.ViewProjectionMatrix,
-				SceneView.ViewLocation,
-				!SceneView.bIsPerspective);
-		}
-	}
-	RenderCommand::EndRenderPass();
+		if (!bIsSIEMode) return true;
+		const FViewportSettings ViewportSetting{ 0, 0, Targets.SceneColor->GetWidth(),
+			Targets.SceneColor->GetHeight(), 0.0f, 1.0f };
+		if (Outline->GetTarget() &&
+			!Graph.AddRasterPass(MakeViewportPass("SIEOutline", Color, Depth),
+				[this, &SceneView, ViewportSetting]
+				{
+					OutlineRenderer->OnRender(*Outline, SceneView.ViewProjectionMatrix, ViewportSetting);
+				})) return false;
+		if (Gizmo->GetTarget() &&
+			!Graph.AddRasterPass(MakeViewportPass("SIEGizmo", Color, Depth, ERenderGraphLoadAction::Clear),
+				[this, &SceneView]
+				{
+					GizmoRenderer->OnRender(*Gizmo, SceneView.ViewProjectionMatrix,
+						SceneView.ViewLocation, !SceneView.bIsPerspective);
+				})) return false;
+		return true;
+	});
+	if (!bRendered) return;
 }
 
-bool UEditorEngine::DeferredRender(FSceneViewTargets& Targets, const FSceneView& SceneView,
-	FSceneRenderer& SceneRenderer, UWorld* TargetWorld, const FSceneRenderOptions& Options)
+bool UEditorEngine::RenderScene(FSceneViewTargets& Targets, const FSceneView& SceneView,
+	FSceneRenderer& SceneRenderer, UWorld* TargetWorld, const FSceneRenderOptions& Options,
+	const std::function<bool(FRenderGraphBuilder&, FRenderGraphTextureRef, FRenderGraphTextureRef)>& AddOverlays)
 {
 	FTexture2D* ColorTarget = Targets.SceneColor.get();
 	FTexture2D* DepthTarget = Targets.Depth.get();
@@ -749,107 +759,87 @@ bool UEditorEngine::DeferredRender(FSceneViewTargets& Targets, const FSceneView&
 	if (!Width || !Height || !Targets.IsValidFor(Width, Height))
 		return false;
 
-	// GBuffer -> HDR lighting -> skybox and tone mapping.
+	FRenderGraphBuilder Graph;
+	const FRenderGraphTextureRef SceneColor = Graph.ImportTexture(ColorTarget, "SceneColor");
+	const FRenderGraphTextureRef Depth = Graph.ImportTexture(DepthTarget, "SceneDepth");
+	if (!SceneColor || !Depth ||
+		!SceneRenderer.AddCorePasses(Graph, Renderer, Targets, Options, SkyboxRenderer.get()))
+		return false;
+
 	if (Options.bDrawPrimitives)
 	{
-		if (!SceneRenderer.RenderDeferredOpaque(Renderer, Targets, Width, Height))
-			return false;
-		RenderCommand::BeginRenderPass(Targets.LightingHDR.get(), nullptr, Width, Height);
-		SceneRenderer.RenderDeferredLighting(Renderer, Targets);
-		RenderCommand::EndRenderPass();
+		auto FireBall = MakeViewportPass("FireBall", SceneColor);
+		FireBall.ReadTextures = { Depth };
+		if (!Graph.AddRasterPass(std::move(FireBall), [this, TargetWorld, &SceneView, DepthTarget, ColorTarget]
+			{
+				RenderFireBall(TargetWorld, SceneView, DepthTarget, ColorTarget);
+			})) return false;
 	}
-	else
-		RenderCommand::ClearDepthStencil(DepthTarget);
 
-	RenderCommand::BeginRenderPass(ColorTarget, nullptr, Width, Height);
-	if (SkyboxRenderer)
-		SkyboxRenderer->OnRender(SceneView.ViewProjectionMatrix, SceneView.ViewLocation);
-	if (Options.bDrawPrimitives)
-		SceneRenderer.RenderToneMap(Renderer, Targets);
-	RenderCommand::EndRenderPass();
-
-	// Opaque/sky fog, then translucent objects using their own distance to the camera.
-	RenderCommand::BindRenderPassNoClear(ColorTarget, DepthTarget, Width, Height);
-	// FireBall adds color to opaque surfaces, so composite it before their fog.
-	if (Options.bDrawPrimitives)
-		RenderFireBall(TargetWorld, SceneView, DepthTarget, ColorTarget);
-	const bool bHasFog = Options.bDrawPrimitives && Options.bEnableFog &&
-		RenderHeightFog(TargetWorld, SceneView, DepthTarget, ColorTarget);
+	bool bHasFog = false;
+	if (Options.bDrawPrimitives && Options.bEnableFog)
+	{
+		auto Fog = MakeViewportPass("HeightFog", SceneColor);
+		Fog.ReadTextures = { Depth };
+		if (!Graph.AddRasterPass(std::move(Fog), [this, TargetWorld, &SceneView, DepthTarget, ColorTarget, &bHasFog]
+			{
+				bHasFog = RenderHeightFog(TargetWorld, SceneView, DepthTarget, ColorTarget);
+			})) return false;
+	}
 	if (Options.bDrawPrimitives)
 	{
-		FConstantBuffer* FogConstants = HeightFogRenderer
-			? HeightFogRenderer->GetTranslucentFogConstants(bHasFog) : nullptr;
-		SceneRenderer.RenderTranslucent(Renderer, FogConstants);
+		auto Translucent = MakeViewportPass("Translucent", SceneColor, Depth);
+		if (!Graph.AddRasterPass(std::move(Translucent), [this, &SceneRenderer, &bHasFog]
+			{
+				FConstantBuffer* FogConstants = HeightFogRenderer
+					? HeightFogRenderer->GetTranslucentFogConstants(bHasFog) : nullptr;
+				SceneRenderer.RenderTranslucent(Renderer, FogConstants);
+			})) return false;
 	}
 
-	RenderSceneText(TargetWorld, SceneView);
+	if (!Graph.AddRasterPass(MakeViewportPass("SceneText", SceneColor, Depth),
+		[this, TargetWorld, &SceneView] { RenderSceneText(TargetWorld, SceneView); })) return false;
 
 	if (Options.bShowSceneDepth && SceneDepthRenderer)
-		SceneDepthRenderer->OnRender(SceneView, DepthTarget, ColorTarget, Options.SceneDepthRange);
+	{
+		auto Visualize = MakeViewportPass("SceneDepthVisualization", SceneColor);
+		Visualize.ReadTextures = { Depth };
+		if (!Graph.AddRasterPass(std::move(Visualize), [this, &SceneView, DepthTarget, ColorTarget, &Options]
+			{
+				SceneDepthRenderer->OnRender(SceneView, DepthTarget, ColorTarget, Options.SceneDepthRange);
+			})) return false;
+	}
 	else if (Options.bShowWorldNormal && WorldNormalRenderer)
-		WorldNormalRenderer->OnRender(Targets.NormalRoughness.get(), DepthTarget, ColorTarget);
-	if (Options.bEnableFXAA && !Options.bShowSceneDepth && !Options.bShowWorldNormal && FXAARenderer &&
-		FXAARenderer->OnRender(SceneView, DepthTarget, ColorTarget))
 	{
-		// Both viewport types now exchange and bind the same final output target.
-		if (!Targets.SwapSceneColorAndBind(FXAARenderer->GetOutputTarget()))
-			RenderCommand::BindRenderPassNoClear(ColorTarget, DepthTarget, Width, Height);
+		const auto Normal = Graph.ImportTexture(Targets.NormalRoughness.get(), "NormalRoughness");
+		auto Visualize = MakeViewportPass("WorldNormalVisualization", SceneColor);
+		Visualize.ReadTextures = { Normal, Depth };
+		if (!Graph.AddRasterPass(std::move(Visualize), [this, &Targets, DepthTarget, ColorTarget]
+			{
+				WorldNormalRenderer->OnRender(Targets.NormalRoughness.get(), DepthTarget, ColorTarget);
+			})) return false;
 	}
-	return true;
-}
 
-bool UEditorEngine::ForwardRender(FSceneViewTargets& Targets, const FSceneView& SceneView,
-	FSceneRenderer& SceneRenderer, UWorld* TargetWorld, const FSceneRenderOptions& Options)
-{
-	FTexture2D* ColorTarget = Targets.SceneColor.get();
-	FTexture2D* DepthTarget = Targets.Depth.get();
-	if (!TargetWorld || !Renderer || !ColorTarget || !DepthTarget)
-		return false;
-	const uint32 Width = ColorTarget->GetWidth();
-	const uint32 Height = ColorTarget->GetHeight();
-	if (!Width || !Height || !Targets.IsValidFor(Width, Height))
-		return false;
-
-	// Forward opaque shading writes lit linear color and depth in one mesh pass.
-	if (!RenderCommand::BeginForwardOpaquePass(Targets, Width, Height, Options.bShowWorldNormal))
-		return false;
-	if (Options.bDrawPrimitives && !SceneRenderer.RenderForwardOpaque(Renderer, Options.LightingModel,
-		Options.bEnableClusteredLightCulling))
+	FRenderGraphTextureRef FinalColor = SceneColor;
+	bool bFXAASucceeded = true;
+	const bool bUseFXAA = Options.bEnableFXAA && !Options.bShowSceneDepth &&
+		!Options.bShowWorldNormal && FXAARenderer && FXAARenderer->PrepareOutput(ColorTarget);
+	if (bUseFXAA)
 	{
-		RenderCommand::EndRenderPass();
-		return false;
+		FinalColor = Graph.ImportTexture(FXAARenderer->GetOutputTarget().get(), "FXAAOutput");
+		auto FXAA = MakeViewportPass("FXAA", FinalColor);
+		FXAA.ReadTextures = { SceneColor };
+		if (!Graph.AddRasterPass(std::move(FXAA), [this, ColorTarget, &bFXAASucceeded]
+			{
+				bFXAASucceeded = FXAARenderer->OnRender(ColorTarget);
+			})) return false;
 	}
+	if (AddOverlays && !AddOverlays(Graph, FinalColor, Depth)) return false;
+	if (!Graph.Execute() || !SceneRenderer.DidCorePassSucceed() || !bFXAASucceeded) return false;
+	if (bUseFXAA && !Targets.SwapSceneColorAndBind(FXAARenderer->GetOutputTarget()))
+		return false;
+	// UI가 완성된 SceneColor를 SRV로 읽으므로 출력 RTV를 남겨 두지 않는다.
 	RenderCommand::EndRenderPass();
-
-	RenderCommand::BeginRenderPass(ColorTarget, nullptr, Width, Height);
-	if (SkyboxRenderer)
-		SkyboxRenderer->OnRender(SceneView.ViewProjectionMatrix, SceneView.ViewLocation);
-	if (Options.bDrawPrimitives)
-		SceneRenderer.RenderToneMap(Renderer, Targets);
-	RenderCommand::EndRenderPass();
-
-	RenderCommand::BindRenderPassNoClear(ColorTarget, DepthTarget, Width, Height);
-	if (Options.bDrawPrimitives)
-		RenderFireBall(TargetWorld, SceneView, DepthTarget, ColorTarget);
-	const bool bHasFog = Options.bDrawPrimitives && Options.bEnableFog &&
-		RenderHeightFog(TargetWorld, SceneView, DepthTarget, ColorTarget);
-	if (Options.bDrawPrimitives)
-	{
-		FConstantBuffer* FogConstants = HeightFogRenderer
-			? HeightFogRenderer->GetTranslucentFogConstants(bHasFog) : nullptr;
-		SceneRenderer.RenderTranslucent(Renderer, FogConstants);
-	}
-	RenderSceneText(TargetWorld, SceneView);
-	if (Options.bShowSceneDepth && SceneDepthRenderer)
-		SceneDepthRenderer->OnRender(SceneView, DepthTarget, ColorTarget, Options.SceneDepthRange);
-	else if (Options.bShowWorldNormal && WorldNormalRenderer)
-		WorldNormalRenderer->OnRender(Targets.NormalRoughness.get(), DepthTarget, ColorTarget);
-	if (Options.bEnableFXAA && !Options.bShowSceneDepth && !Options.bShowWorldNormal && FXAARenderer &&
-		FXAARenderer->OnRender(SceneView, DepthTarget, ColorTarget))
-	{
-		if (!Targets.SwapSceneColorAndBind(FXAARenderer->GetOutputTarget()))
-			RenderCommand::BindRenderPassNoClear(ColorTarget, DepthTarget, Width, Height);
-	}
 	return true;
 }
 
@@ -1038,103 +1028,85 @@ void UEditorEngine::RenderFrame(FEditorViewportClient *ViewClient,
 	Options.SceneDepthRange = ViewClient->GetMaxRange();
 
 	FSceneViewTargets& Targets = ViewClient->GetViewTargets();
-	const bool bRendered = Options.RenderingPath == ERenderingPath::Forward
-		? ForwardRender(Targets, SceneView, SceneRenderer, TargetWorld, Options)
-		: DeferredRender(Targets, SceneView, SceneRenderer, TargetWorld, Options);
-	
-	if (!bRendered)
-		return;
-	
-	FTexture2D* DepthTarget = Targets.Depth.get();
-	const uint32 Width = Targets.SceneColor->GetWidth();
-	const uint32 Height = Targets.SceneColor->GetHeight();
-	const int32 ViewIndex = SceneView.ViewIndex;
-	const FViewportSettings ViewportSetting{0, 0, Width, Height, 0.0f, 1.0f};
-
-	// 라인 배처 렌더링
-	const bool bIsActiveViewport = ViewportsPanel && ViewIndex == ViewportsPanel->GetActiveViewIndex();
-	const bool bDrawSelectedLight = bIsActiveViewport && Gizmo->GetTarget() &&
-		(Cast<ASpotLight>(Gizmo->GetTarget()->GetOwner()) ||
-		 Cast<APointLightActor>(Gizmo->GetTarget()->GetOwner()));
-	if (!bIsPIE && (SettingsPanel->GetSettings().bDrawBatchLine || bDrawSelectedLight)) {
-		LineBatcher->BeginFrame();
-
-		if (SettingsPanel->GetSettings().bDrawBatchLine && SettingsPanel->GetSettings().bDrawBoundingBox) {
-			LineBatcher->BuildVertexBuffer();
-			EditorWorld->GetPathTracker().OnRender(LineBatcher.get());
+	const bool bRendered = RenderScene(Targets, SceneView, SceneRenderer, TargetWorld, Options,
+		[this, ViewClient, &SceneView, &Targets, bIsPIE](FRenderGraphBuilder& Graph,
+			FRenderGraphTextureRef Color, FRenderGraphTextureRef Depth)
+	{
+		if (bIsPIE) return true;
+		const FViewportSettings ViewportSetting{ 0, 0, Targets.SceneColor->GetWidth(),
+			Targets.SceneColor->GetHeight(), 0.0f, 1.0f };
+		const bool bIsActiveViewport = ViewportsPanel &&
+			SceneView.ViewIndex == ViewportsPanel->GetActiveViewIndex();
+		const bool bDrawSelectedLight = bIsActiveViewport && Gizmo->GetTarget() &&
+			(Cast<ASpotLight>(Gizmo->GetTarget()->GetOwner()) ||
+			 Cast<APointLightActor>(Gizmo->GetTarget()->GetOwner()));
+		if (SettingsPanel->GetSettings().bDrawBatchLine || bDrawSelectedLight)
+		{
+			if (!Graph.AddRasterPass(MakeViewportPass("EditorLines", Color, Depth),
+				[this, &SceneView, bDrawSelectedLight]
+				{
+					LineBatcher->BeginFrame();
+					if (SettingsPanel->GetSettings().bDrawBatchLine && SettingsPanel->GetSettings().bDrawBoundingBox)
+					{
+						LineBatcher->BuildVertexBuffer();
+						EditorWorld->GetPathTracker().OnRender(LineBatcher.get());
+					}
+					if (bDrawSelectedLight)
+					{
+						if (ASpotLight* Light = Cast<ASpotLight>(Gizmo->GetTarget()->GetOwner()))
+							Light->GetSpotLightComponent()->DrawDebug(LineBatcher.get());
+						else if (APointLightActor* Light = Cast<APointLightActor>(Gizmo->GetTarget()->GetOwner()))
+							Light->GetPointLightComponent()->DrawDebug(LineBatcher.get());
+					}
+					LineBatcher->OnRender(SceneView.ViewProjectionMatrix);
+				})) return false;
 		}
-
-		if (bDrawSelectedLight) {
-			if (ASpotLight* LightActor =
-				Cast<ASpotLight>(Gizmo->GetTarget()->GetOwner())) {
-				LightActor->GetSpotLightComponent()->DrawDebug(LineBatcher.get());
-			}
-			else if (APointLightActor* LightActor =
-				Cast<APointLightActor>(Gizmo->GetTarget()->GetOwner())) {
-				LightActor->GetPointLightComponent()->DrawDebug(LineBatcher.get());
-			}
+		if (SettingsPanel->GetSettings().bDrawBatchLine)
+		{
+			if (!Graph.AddRasterPass(MakeViewportPass("EditorGrid", Color, Depth),
+				[this, ViewClient, &SceneView, ViewportSetting]
+				{
+					EGridPlane GridPlane = EGridPlane::XY;
+					switch (ViewClient->GetViewportType())
+					{
+					case ELevelViewportType::Front: GridPlane = EGridPlane::YZ; break;
+					case ELevelViewportType::Right: GridPlane = EGridPlane::XZ; break;
+					default: break;
+					}
+					if (SettingsPanel->GetSettings().bDrawPSGrid && SceneView.bIsPerspective)
+						GridRenderer->OnRenderPSGrid(SceneView.ViewProjectionMatrix, SceneView.ViewLocation,
+							SettingsPanel->GetSettings(), ViewportSetting);
+					else
+						GridRenderer->OnRenderBatchGrid(SceneView.ViewProjectionMatrix, SceneView.ViewLocation,
+							SceneView.ViewForward, GridPlane,
+							static_cast<float>(SettingsPanel->GetSettings().GridSpacing),
+							SceneView.bIsPerspective, ViewportSetting);
+				})) return false;
 		}
-
-		LineBatcher->OnRender(SceneView.ViewProjectionMatrix);
-	}
-
-	// 에디터 그리드 렌더링
-	if (!bIsPIE &&
-			SettingsPanel->GetSettings().bDrawBatchLine) {
-		EGridPlane GridPlane = EGridPlane::XY;
-		if (ViewClient) {
-			switch (ViewClient->GetViewportType()) {
-			case ELevelViewportType::Top:
-				GridPlane = EGridPlane::XY;
-				break;
-			case ELevelViewportType::Front:
-				GridPlane = EGridPlane::YZ;
-				break;
-			case ELevelViewportType::Right:
-				GridPlane = EGridPlane::XZ;
-				break;
-			default:
-				GridPlane = EGridPlane::XY;
-				break;
-			}
-		}
-
-		if (SettingsPanel->GetSettings().bDrawPSGrid && SceneView.bIsPerspective) {
-			GridRenderer->OnRenderPSGrid(
-					SceneView.ViewProjectionMatrix, SceneView.ViewLocation,
-					SettingsPanel->GetSettings(), ViewportSetting);
-		} else {
-			GridRenderer->OnRenderBatchGrid(
-					SceneView.ViewProjectionMatrix, SceneView.ViewLocation,
-					SceneView.ViewForward, GridPlane,
-					static_cast<float>(SettingsPanel->GetSettings().GridSpacing),
-					SceneView.bIsPerspective, ViewportSetting);
-		}
-	}
-
-	// 에디터 오버레이 렌더링
-	if (!bIsPIE) {
-		// 활성 뷰포트에만 아웃라인과 기즈모 렌더링
-		if (Outline->GetTarget() && bIsActiveViewport) {
-			OutlineRenderer->OnRender(*Outline, SceneView.ViewProjectionMatrix,
-			ViewportSetting);
-		}
-
-		if (Gizmo->GetTarget() && bIsActiveViewport) {
-			RenderCommand::ClearDepthStencil(DepthTarget);
-			GizmoRenderer->OnRender(*Gizmo, SceneView.ViewProjectionMatrix,
-			SceneView.ViewLocation,
-			!SceneView.bIsPerspective);
-		}
-
-		RenderCommand::ClearDepthStencil(DepthTarget);
-
-		if (SettingsPanel->GetSettings().bShowUUID) {
-			RenderActorUUIDs(SceneView);
-		}
-	}
-
-	RenderCommand::EndRenderPass();
+		if (bIsActiveViewport && Outline->GetTarget() &&
+			!Graph.AddRasterPass(MakeViewportPass("EditorOutline", Color, Depth),
+				[this, &SceneView, ViewportSetting]
+				{
+					OutlineRenderer->OnRender(*Outline, SceneView.ViewProjectionMatrix, ViewportSetting);
+				})) return false;
+		if (bIsActiveViewport && Gizmo->GetTarget() &&
+			!Graph.AddRasterPass(MakeViewportPass("EditorGizmo", Color, Depth, ERenderGraphLoadAction::Clear),
+				[this, &SceneView]
+				{
+					GizmoRenderer->OnRender(*Gizmo, SceneView.ViewProjectionMatrix,
+						SceneView.ViewLocation, !SceneView.bIsPerspective);
+				})) return false;
+		// UUID는 깊이를 지운 뒤 씬 위에 표시한다.
+		FRenderGraphRasterPassDesc ClearDepth{};
+		ClearDepth.Name = "EditorClearDepth";
+		ClearDepth.DepthAttachment = { Depth, ERenderGraphLoadAction::Clear, 1.0f, 0 };
+		if (!Graph.AddRasterPass(std::move(ClearDepth), [] {})) return false;
+		if (SettingsPanel->GetSettings().bShowUUID &&
+			!Graph.AddRasterPass(MakeViewportPass("EditorUUID", Color, Depth),
+				[this, &SceneView] { RenderActorUUIDs(SceneView); })) return false;
+		return true;
+	});
+	if (!bRendered) return;
 }
 
 // View Texture가 포함된 UI를 Swapchain 백버퍼에 합성한다. Present는

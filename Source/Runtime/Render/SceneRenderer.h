@@ -4,11 +4,14 @@
 #include "Render/SceneView.h"
 #include "Render/RenderPacket.h"
 #include "Render/SceneRenderData.h"
+#include "Render/SceneRenderOptions.h"
 
 class UWorld;
 class FScene;
 class FRenderer;
 class FConstantBuffer;
+class FSkyboxRenderer;
+class FRenderGraphBuilder;
 struct FSceneViewTargets;
 
 // 씬 렌더링 조율자
@@ -29,11 +32,10 @@ public:
 	static void PrepareDrawData(FRenderer* Renderer, const FSceneRenderData& Data);
 	const FRenderStats& GetRenderStats() const { return RenderData.RenderStats; }
 
-	// 불투명 장면을 GBuffer 패스로 렌더링한다.
-	bool RenderDeferredOpaque(FRenderer* Renderer, const FSceneViewTargets& Targets, uint32 Width, uint32 Height);
-	bool RenderForwardOpaque(FRenderer* Renderer, ELightingModel LightingModel, bool bEnableClusteredLightCulling);
-	void RenderDeferredLighting(FRenderer* Renderer, const FSceneViewTargets& Targets);
-	void RenderToneMap(FRenderer* Renderer, const FSceneViewTargets& Targets);
+	// 한 뷰의 핵심 패스(GBuffer/Forward, 조명, 하늘, 톤매핑)를 그래프에 등록한다.
+	bool AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Renderer, FSceneViewTargets& Targets,
+		const FSceneRenderOptions& Options, FSkyboxRenderer* Skybox);
+	bool DidCorePassSucceed() const { return bCorePassSucceeded; }
 
 	// 반투명 렌더링
 	void RenderTranslucent(FRenderer* Renderer, FConstantBuffer* FogConstants = nullptr);
@@ -52,4 +54,5 @@ private:
 	FSceneView View;
 	FSceneRenderData& RenderData;
 	FViewContext CachedViewContext;
+	bool bCorePassSucceeded = true;
 };
