@@ -6,6 +6,7 @@ class FBuffer;
 class FStructuredBuffer;
 class UStaticMesh;
 class UTexture2D;
+class FTextureCube;
 class FShaderProgram;
 class FVertexShader;
 class FPixelShader;
@@ -76,6 +77,7 @@ public:
 	static void Unmap(FBuffer* InBuffer);
 	static void BindShaderResource(uint32 Slot, FTexture2D* Texture2D, EShaderBindFlagBits FlagBits);
 	static void BindShaderResource(uint32 Slot, UTexture2D* Texture2D, EShaderBindFlagBits FlagBits);
+	static void BindShaderResource(uint32 Slot, const FTextureCube* TextureCube, EShaderBindFlagBits FlagBits);
 	static void BindShaderResource(uint32 Slot, FStructuredBuffer* StructuredBuffer, EShaderBindFlagBits FlagBits);
 	static void UnbindShaderResources(uint32 FirstSlot, uint32 Count, EShaderBindFlagBits FlagBits);
 

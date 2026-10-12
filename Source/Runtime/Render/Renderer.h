@@ -9,6 +9,8 @@
 #include "Engine/LightSceneProxy.h"
 #include "Render/Buffer.h"
 #include "ForwardLightCluster.h"
+#include "SkyLightEnvironment.h"
+#include <unordered_map>
 
 // 오클루전 컬링의 효과 상한을 재기 위한 측정 결과 (디버그 전용)
 struct FOcclusionMeasureResult
@@ -30,9 +32,12 @@ class FRenderer
 {
 public:
 	bool Init();
+	void PrepareSkyLight(const FSkyLightRenderData& SkyLight);
+	const FSkyLightEnvironment* GetSkyLightEnvironment(const FString& SourcePath) const;
 	void DrawDeferredLighting(const FSceneView& View, const struct FSceneViewTargets& Targets,
 		const FAmbientLightRenderData& AmbientLight, const TArray<FDirectionalLightRenderData>& DirectionalLights,
-		const TArray<FPointLightRenderData>& PointLights, const TArray<FSpotLightRenderData>& SpotLights);
+		const TArray<FPointLightRenderData>& PointLights, const TArray<FSpotLightRenderData>& SpotLights,
+		const FSkyLightRenderData* SkyLight = nullptr);
 	void DrawToneMap(const struct FSceneViewTargets& Targets);
 
 	// 시점 상수 버퍼 및 렌더링 상태 설정
@@ -47,7 +52,7 @@ public:
 		const FAmbientLightRenderData& AmbientLight, const TArray<FDirectionalLightRenderData>& DirectionalLights,
 		const TArray<FPointLightRenderData>& PointLights,
 		const TArray<FSpotLightRenderData>& SpotLights, ELightingModel LightingModel,
-		bool bEnableClusteredLightCulling);
+		bool bEnableClusteredLightCulling, const FSkyLightRenderData* SkyLight = nullptr);
 
 	// 반투명 요소 렌더링
 	void RenderTranslucent(const FSceneView& View, const FRenderQueue& InQueue);
@@ -74,6 +79,7 @@ private:
 	TUniquePtr<FConstantBuffer> ForwardLightCB;
 	TUniquePtr<FConstantBuffer> ForwardMaterialCB;
 	FForwardLightClusterGrid ForwardClusterGrid;
+	std::unordered_map<FString, TUniquePtr<FSkyLightEnvironment>> SkyLightEnvironments;
 
 	// 오브젝트 상수 버퍼
 	TUniquePtr<FConstantBuffer> PerObjectSlotCB;
@@ -98,7 +104,8 @@ private:
 		const TArray<FDirectionalLightRenderData>& DirectionalLights,
 		const TArray<FPointLightRenderData>& PointLights,
 		const TArray<FSpotLightRenderData>& SpotLights,
-		ELightingModel LightingModel, FPipelineState& OutPSO, FForwardLightingConstants& OutLighting);
+		ELightingModel LightingModel, const FSkyLightRenderData* SkyLight,
+		FPipelineState& OutPSO, FForwardLightingConstants& OutLighting);
 	void BindForwardMaterial(UMaterial* Material, const FSceneView& View, const FPipelineState& PSO);
 	void DrawForwardObject(const FSceneView& View, const FMatrix& World, uint32 IndexCount, uint32 StartIndex);
 

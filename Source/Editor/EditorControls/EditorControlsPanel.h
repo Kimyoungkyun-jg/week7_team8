@@ -9,6 +9,7 @@
 #include "GameFramework/Actor/LightActor.h"
 #include "GameFramework/Actor/PointLightActor.h"
 #include "GameFramework/Actor/SpotLight.h"
+#include "GameFramework/Actor/SkyLight.h"
 #include "GameFramework/Actor/TextRenderActor.h"
 #include "GameFramework/Actor/SpinActor.h"
 #include "GameFramework/Actor/ExponentialHeightFogActor.h"

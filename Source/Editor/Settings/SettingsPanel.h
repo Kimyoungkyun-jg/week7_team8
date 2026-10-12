@@ -7,6 +7,7 @@
 #include "Render/RenderEnums.h"
 
 class UWorld;
+class FRenderer;
 
 struct FEditorSettings
 {
@@ -20,6 +21,7 @@ struct FEditorSettings
 	bool bDrawPSGrid = false;
 	bool bEnableFXAA = false;
 	bool bEnableClusteredLightCulling = true;
+	bool bUseSkyLight = true;
 	ERenderingPath RenderingPath = ERenderingPath::Deferred;
 	ELightingModel LightingModel = ELightingModel::Gouraud;
 	FVector AmbientColor{ 0.5f, 0.5f, 0.5f };
@@ -63,6 +65,7 @@ public:
 	const char* GetPanelName() const override { return "Settings"; }
 
 	void SetWorld(UWorld* InWorld) { World = InWorld; }
+	void SetRenderer(FRenderer* InRenderer) { Renderer = InRenderer; }
 	void SetViewportsPanel(FViewportsPanel* InPanel) { ViewportsPanel = InPanel; }
 
 	const FEditorSettings& GetSettings() const { return Settings; }
@@ -85,6 +88,7 @@ private:
 	void ApplySceneDepthRange();
 	void DrawDefaultPawnSettings();
 	UWorld* World = nullptr;
+	FRenderer* Renderer = nullptr;
 	FViewportsPanel* ViewportsPanel = nullptr;
 	FEditorSettings Settings;
 };

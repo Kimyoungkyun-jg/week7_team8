@@ -26,6 +26,8 @@ namespace
 {
 	constexpr uint32 ForwardSceneLightSlot = 8;
 	constexpr uint32 DeferredSceneLightSlot = 3;
+	constexpr uint32 ForwardSkyIrradianceSlot = 11;
+	constexpr uint32 DeferredSkyIrradianceSlot = 4;
 
 	// 셰이더의 노멀맵 디코딩 방식: 0 없음, 1 RGB, 2 BC5 UNORM, 3 BC5 SNORM.
 	float GetNormalTextureEncoding(UTexture2D* Texture)
@@ -124,13 +126,15 @@ namespace
 		FAmbientLightRenderData Ambient;
 		uint32 LightCounts[4]; // x: 포인트 개수, y: 스포트 개수, z: 방향광 개수
 		uint32 LightOffsets[4];
+		FVector4 SkyColorIntensity;
 	};
 	static_assert(sizeof(FPointLightRenderData) == 48);
 	static_assert(offsetof(FDeferredLightConstants, ViewportPass) == 96);
 	static_assert(offsetof(FDeferredLightConstants, Ambient) == 112);
 	static_assert(offsetof(FDeferredLightConstants, LightCounts) == 128);
 	static_assert(offsetof(FDeferredLightConstants, LightOffsets) == 144);
-	static_assert(sizeof(FDeferredLightConstants) == 160);
+	static_assert(offsetof(FDeferredLightConstants, SkyColorIntensity) == 160);
+	static_assert(sizeof(FDeferredLightConstants) == 176);
 	// VSSetConstantBuffers1의 오프셋은 16개 상수(256바이트) 단위여야 하므로 오브젝트마다 256바이트 칸을 쓴다.
 	constexpr uint32 PerObjectSlotConstants = 16;
 	static_assert(sizeof(FPerObjectConstants) <= ObjectSlotBytes);
@@ -168,6 +172,21 @@ bool FRenderer::Init()
 	GPUOcclusion.Init();   // 실패해도 오클루전만 못 쓸 뿐 렌더링은 된다
 
 	return true;
+}
+
+void FRenderer::PrepareSkyLight(const FSkyLightRenderData& SkyLight)
+{
+	if (SkyLight.SourcePath.empty() || SkyLightEnvironments.contains(SkyLight.SourcePath))
+		return;
+	auto Environment = MakeUnique<FSkyLightEnvironment>();
+	Environment->Build(SkyLight.SourcePath);
+	SkyLightEnvironments.emplace(SkyLight.SourcePath, std::move(Environment));
+}
+
+const FSkyLightEnvironment* FRenderer::GetSkyLightEnvironment(const FString& SourcePath) const
+{
+	const auto It = SkyLightEnvironments.find(SourcePath);
+	return It != SkyLightEnvironments.end() && It->second->IsValid() ? It->second.get() : nullptr;
 }
 
 // 필요한 칸 수가 용량을 넘을 때만 두 배씩 키워 재할당을 드물게 한다.
@@ -218,13 +237,20 @@ bool FRenderer::RenderForwardOpaque(const FSceneView& View, const FRenderQueue& 
 	const TArray<FDirectionalLightRenderData>& DirectionalLights,
 	const TArray<FPointLightRenderData>& PointLights,
 	const TArray<FSpotLightRenderData>& SpotLights, ELightingModel LightingModel,
-	bool bEnableClusteredLightCulling)
+	bool bEnableClusteredLightCulling, const FSkyLightRenderData* SkyLight)
 {
 	FPipelineState PSO;
 	FForwardLightingConstants Lighting{};
 	if (!SetupForwardPass(View, AmbientLight, DirectionalLights, PointLights, SpotLights,
-		LightingModel, PSO, Lighting))
+		LightingModel, SkyLight, PSO, Lighting))
 		return false;
+	const FSkyLightEnvironment* SkyEnvironment = SkyLight
+		? GetSkyLightEnvironment(SkyLight->SourcePath) : nullptr;
+	RenderCommand::BindShaderResource(ForwardSkyIrradianceSlot,
+		SkyEnvironment ? SkyEnvironment->GetIrradianceCube() : nullptr,
+		EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
+	RenderCommand::BindSamplerState(1, ESamplerState::LinearClamp,
+		EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
 	bool bClustersBuilt = false;
 	if (bEnableClusteredLightCulling && LightingModel != ELightingModel::Gouraud &&
 		(Lighting.LightCounts[0] || Lighting.LightCounts[1]))
@@ -236,6 +262,8 @@ bool FRenderer::RenderForwardOpaque(const FSceneView& View, const FRenderQueue& 
 	ForwardClusterGrid.UnbindPixelShader();
 	RenderCommand::UnbindShaderResources(ForwardSceneLightSlot, 1,
 		EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
+	RenderCommand::UnbindShaderResources(ForwardSkyIrradianceSlot, 1,
+		EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
 
 	return true;
 }
@@ -245,6 +273,7 @@ bool FRenderer::SetupForwardPass(const FSceneView& View,
 	const TArray<FDirectionalLightRenderData>& DirectionalLights,
 	const TArray<FPointLightRenderData>& PointLights,
 	const TArray<FSpotLightRenderData>& SpotLights, ELightingModel LightingModel,
+	const FSkyLightRenderData* SkyLight,
 	FPipelineState& OutPSO, FForwardLightingConstants& OutLighting)
 {
 	FPipelineState* BasePSO = FRenderResourceManager::GetPSO(EPSOType::StaticMesh_Forward);
@@ -255,7 +284,11 @@ bool FRenderer::SetupForwardPass(const FSceneView& View,
 	OutPSO.Shader = Program;
 
 	OutLighting = {};
-	OutLighting.Ambient = AmbientLight;
+	const bool bUseSkyLight = SkyLight && GetSkyLightEnvironment(SkyLight->SourcePath);
+	OutLighting.Ambient = bUseSkyLight
+		? FAmbientLightRenderData{ FVector4(0.0f) } : AmbientLight;
+	if (bUseSkyLight)
+		OutLighting.SkyColorIntensity = SkyLight->ColorIntensity;
 	OutLighting.CameraPosition = FVector4(View.ViewLocation.X, View.ViewLocation.Y, View.ViewLocation.Z, 1.0f);
 	if (!PackAndUploadSceneLights(SceneLightBuffer, DirectionalLights, PointLights,
 		SpotLights, OutLighting.LightCounts, OutLighting.LightOffsets))
@@ -318,7 +351,7 @@ void FRenderer::DrawDeferredLighting(const FSceneView& View, const FSceneViewTar
 	const FAmbientLightRenderData& AmbientLight,
 	const TArray<FDirectionalLightRenderData>& DirectionalLights,
 	const TArray<FPointLightRenderData>& PointLights,
-	const TArray<FSpotLightRenderData>& SpotLights)
+	const TArray<FSpotLightRenderData>& SpotLights, const FSkyLightRenderData* SkyLight)
 {
 	FPipelineState* PSO = FRenderResourceManager::GetPSO(EPSOType::DeferredLighting);
 	if (!PSO || !PSO->Shader || !PSO->Shader->VertexShader || !PSO->Shader->PixelShader || !DeferredLightCB)
@@ -328,7 +361,12 @@ void FRenderer::DrawDeferredLighting(const FSceneView& View, const FSceneViewTar
 	Constants.CameraPosition = FVector4(View.ViewLocation.X, View.ViewLocation.Y,
 		View.ViewLocation.Z, View.bIsPerspective ? 1.0f : 0.0f);
 	Constants.CameraForward = FVector4(View.ViewForward.X, View.ViewForward.Y, View.ViewForward.Z, 0.0f);
-	Constants.Ambient = AmbientLight;
+	const FSkyLightEnvironment* SkyEnvironment = SkyLight
+		? GetSkyLightEnvironment(SkyLight->SourcePath) : nullptr;
+	Constants.Ambient = SkyEnvironment
+		? FAmbientLightRenderData{ FVector4(0.0f) } : AmbientLight;
+	if (SkyEnvironment)
+		Constants.SkyColorIntensity = SkyLight->ColorIntensity;
 	if (!PackAndUploadSceneLights(SceneLightBuffer, DirectionalLights, PointLights,
 		SpotLights, Constants.LightCounts, Constants.LightOffsets))
 	{
@@ -351,6 +389,10 @@ void FRenderer::DrawDeferredLighting(const FSceneView& View, const FSceneViewTar
 		(PointLights.IsEmpty() && DirectionalLights.IsEmpty() && SpotLights.IsEmpty())
 			? nullptr : SceneLightBuffer.get(),
 		EShaderBindFlagBits::Pixel);
+	RenderCommand::BindShaderResource(DeferredSkyIrradianceSlot,
+		SkyEnvironment ? SkyEnvironment->GetIrradianceCube() : nullptr,
+		EShaderBindFlagBits::Pixel);
+	RenderCommand::BindSamplerState(1, ESamplerState::LinearClamp, EShaderBindFlagBits::Pixel);
 	RenderCommand::Draw(3);
 	if (!PointLights.IsEmpty() || !SpotLights.IsEmpty())
 	{
@@ -364,7 +406,7 @@ void FRenderer::DrawDeferredLighting(const FSceneView& View, const FSceneViewTar
 		}
 	}
 
-	RenderCommand::UnbindShaderResources(0, 4, EShaderBindFlagBits::Pixel);
+	RenderCommand::UnbindShaderResources(0, 5, EShaderBindFlagBits::Pixel);
 }
 
 void FRenderer::DrawToneMap(const FSceneViewTargets& Targets)

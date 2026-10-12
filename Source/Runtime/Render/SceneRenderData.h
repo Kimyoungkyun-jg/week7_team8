@@ -45,6 +45,8 @@ struct FSceneRenderData
 	TArray<FPerObjectConstants> ObjectConstants;
 
 	FAmbientLightRenderData AmbientLight{ FVector4(0.5f, 0.5f, 0.5f, 1.0f) };
+	FSkyLightRenderData SkyLight{};
+	bool bHasSkyLight = false;
 	TArray<FDirectionalLightRenderData> VisibleDirectionalLights;
 	TArray<FPointLightRenderData> VisiblePointLights;
 	TArray<FSpotLightRenderData> VisibleSpotLights;
@@ -68,6 +70,8 @@ struct FSceneRenderData
 		SelectedLODs.Reset();
 		ObjectConstants.Reset();
 		AmbientLight = FAmbientLightRenderData{ FVector4(0.5f, 0.5f, 0.5f, 1.0f) };
+		SkyLight = {};
+		bHasSkyLight = false;
 		VisibleDirectionalLights.Reset();
 		VisiblePointLights.Reset();
 		VisibleSpotLights.Reset();

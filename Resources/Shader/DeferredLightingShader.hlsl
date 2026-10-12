@@ -3,6 +3,8 @@
 Texture2D<float4> BaseColorMetallic : register(t0);
 Texture2D<float4> NormalRoughness : register(t1);
 Texture2D<float> SceneDepth : register(t2);
+TextureCube<float4> SkyIrradiance : register(t4);
+SamplerState SkySampler : register(s1);
 
 struct FSceneLightRenderInfo
 {
@@ -21,6 +23,7 @@ cbuffer DeferredLightConstants : register(b0)
     float4 AmbientColorIntensity;
     uint4 LightCounts; // x: 포인트 개수, y: 스포트 개수, z: 방향광 개수
     uint4 LightOffsets; // SceneLights에서 각 종류가 시작되는 위치, 순서는 위와 같음
+    float4 SkyColorIntensity;
 };
 
 StructuredBuffer<FSceneLightRenderInfo> SceneLights : register(t3);
@@ -57,6 +60,9 @@ float4 mainPS(FPSInput Input) : SV_Target
     {
         float3 AmbientColor = AmbientColorIntensity.rgb * max(AmbientColorIntensity.a, 0.0f);
         float3 Lighting = AmbientColor;
+        if (SkyColorIntensity.a > 0.0f)
+            Lighting += SkyIrradiance.SampleLevel(SkySampler, N, 0).rgb *
+                SkyColorIntensity.rgb * SkyColorIntensity.a;
         [loop]
         for (uint DirectionalIndex = 0; DirectionalIndex < LightCounts.z; ++DirectionalIndex)
         {

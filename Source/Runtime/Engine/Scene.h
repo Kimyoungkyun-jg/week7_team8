@@ -20,10 +20,14 @@ public:
 	void RemoveDirectionalLight(class UDirectionalLightComponent* Component);
 	void AddSpotLight(class USpotLightComponent* Component);
 	void RemoveSpotLight(class USpotLightComponent* Component);
+	void AddSkyLight(class USkyLightComponent* Component);
+	void RemoveSkyLight(class USkyLightComponent* Component);
 	void RemoveAllLights();
 	const TArray<class FPointLightSceneProxy*>& GetPointLights() const { return PointLights; }
 	const TArray<class FDirectionalLightSceneProxy*>& GetDirectionalLights() const { return DirectionalLights; }
 	const TArray<class FSpotLightSceneProxy*>& GetSpotLights() const { return SpotLights; }
+	const TArray<class FSkyLightSceneProxy*>& GetSkyLights() const { return SkyLights; }
+	const class FSkyLightSceneProxy* GetActiveSkyLight(bool bGameView) const;
 
 	void UpdateAllTransforms();
 
@@ -37,6 +41,7 @@ public:
 	TArray<class FPointLightSceneProxy*> PointLights;
 	TArray<class FDirectionalLightSceneProxy*> DirectionalLights;
 	TArray<class FSpotLightSceneProxy*> SpotLights;
+	TArray<class FSkyLightSceneProxy*> SkyLights;
 	TArray<FPrimitiveSceneProxy*> DirtyProxies;
 	TArray<FPrimitiveSceneProxy*> RenderStateDirtyProxies;
 	TArray<FAABB> PrimitiveBounds;

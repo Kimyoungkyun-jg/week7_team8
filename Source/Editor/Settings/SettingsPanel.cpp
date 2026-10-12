@@ -4,6 +4,7 @@
 #include "Camera/CameraComponent.h"
 
 #include "Engine/World.h"
+#include "Render/Renderer.h"
 #include "Editor/Viewports/ViewportsPanel.h"
 #include "Editor/Viewports/EditorViewportClient.h"
 #include "GameFramework/DefaultPawn.h"
@@ -58,11 +59,27 @@ void FSettingsPanel::OnRender()
 		Settings.LightingModel = static_cast<ELightingModel>(LightingModelIndex);
 	ImGui::Checkbox("Clustered Light Culling", &Settings.bEnableClusteredLightCulling);
 	ImGui::TextDisabled("Forward Lambert/Phong only; off evaluates all visible local lights.");
+	ImGui::Checkbox("Use Sky Light", &Settings.bUseSkyLight);
+	bool bSkyLightReady = false;
+	if (!Settings.bUseSkyLight)
+		ImGui::TextDisabled("Ambient active (Sky Light off).");
+	else if (!World || !World->GetScene().GetActiveSkyLight(World->GetWorldType() == PIE))
+		ImGui::TextDisabled("Ambient active: no enabled Sky Light actor.");
+	else
+	{
+		const FSkyLightSceneProxy* SkyLight = World->GetScene().GetActiveSkyLight(World->GetWorldType() == PIE);
+		bSkyLightReady = Renderer && Renderer->GetSkyLightEnvironment(SkyLight->GetRenderData().SourcePath);
+		ImGui::TextDisabled(bSkyLightReady
+			? "Sky Light active; Ambient controls are unused."
+			: "Ambient active: Sky Light cubemap unavailable.");
+	}
+	ImGui::BeginDisabled(bSkyLightReady);
 	ImGui::SetNextItemWidth(200.0f);
 	ImGui::ColorEdit3("Ambient Color", &Settings.AmbientColor.X);
 	ImGui::SetNextItemWidth(200.0f);
 	ImGui::DragFloat("Ambient Intensity", &Settings.AmbientIntensity, 0.01f,
 		0.0f, 10.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+	ImGui::EndDisabled();
 
 	ImGui::Dummy(ImVec2(0.0f, SectionGap));
 	ImGui::SeparatorText("Scene Depth");
@@ -158,6 +175,7 @@ bool FSettingsPanel::SaveSettings() const
 	File << "SceneDepthMaxRange=" << Settings.SceneDepthMaxRange << "\n";
 	File << "EnableFXAA=" << Settings.bEnableFXAA << "\n";
 	File << "EnableClusteredLightCulling=" << Settings.bEnableClusteredLightCulling << "\n";
+	File << "UseSkyLight=" << Settings.bUseSkyLight << "\n";
 	File << "RenderingPath=" << (Settings.RenderingPath == ERenderingPath::Forward ? "Forward" : "Deferred") << "\n";
 	File << "LightingModel=" << (Settings.LightingModel == ELightingModel::Gouraud ? "Gouraud" :
 		Settings.LightingModel == ELightingModel::Lambert ? "Lambert" : "Phong") << "\n";
@@ -292,6 +310,7 @@ bool FSettingsPanel::LoadSettings()
 				else if (Key == "SceneDepthMaxRange") Settings.SceneDepthMaxRange = std::stof(ValueStr);
 				else if (Key == "EnableFXAA") Settings.bEnableFXAA = std::stoi(ValueStr);
 				else if (Key == "EnableClusteredLightCulling") Settings.bEnableClusteredLightCulling = std::stoi(ValueStr);
+				else if (Key == "UseSkyLight") Settings.bUseSkyLight = std::stoi(ValueStr) != 0;
 				else if (Key == "RenderingPath")
 				{
 					if (ValueStr == "Forward") Settings.RenderingPath = ERenderingPath::Forward;

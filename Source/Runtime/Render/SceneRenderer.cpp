@@ -41,7 +41,8 @@ bool FSceneRenderer::IntersectSphereFrustum(const FVector4& PositionRadius, cons
 }
 
 // 가시성 검사 및 렌더 큐 수집
-void FSceneRenderer::InitViews(FRenderer* Renderer, const FAmbientLightRenderData& AmbientLight)
+void FSceneRenderer::InitViews(FRenderer* Renderer, const FAmbientLightRenderData& AmbientLight,
+	bool bUseSkyLight)
 {
 	if (!World)
 	{
@@ -52,6 +53,15 @@ void FSceneRenderer::InitViews(FRenderer* Renderer, const FAmbientLightRenderDat
 	// 월드 프리미티브 수집 및 절두체 컬링
 	GatherRenderPackets(World->GetScene(), RenderData, CachedViewContext, &View.Frustum, Renderer);
 	RenderData.AmbientLight = AmbientLight;
+	if (Renderer && bUseSkyLight)
+	{
+		if (const FSkyLightSceneProxy* SkyLight = World->GetScene().GetActiveSkyLight(View.bGameView))
+		{
+			RenderData.SkyLight = SkyLight->GetRenderData();
+			RenderData.bHasSkyLight = true;
+			Renderer->PrepareSkyLight(RenderData.SkyLight);
+		}
+	}
 
 	// 렌더 큐 자체 정렬
 	RenderData.RenderQueue.Sort();
@@ -98,7 +108,8 @@ bool FSceneRenderer::RenderForwardOpaque(FRenderer* Renderer, ELightingModel Lig
 	PrepareDrawData(Renderer, RenderData);
 	return Renderer->RenderForwardOpaque(View, RenderData.RenderQueue, RenderData.AmbientLight,
 		RenderData.VisibleDirectionalLights, RenderData.VisiblePointLights,
-		RenderData.VisibleSpotLights, LightingModel, bEnableClusteredLightCulling);
+		RenderData.VisibleSpotLights, LightingModel, bEnableClusteredLightCulling,
+		RenderData.bHasSkyLight ? &RenderData.SkyLight : nullptr);
 }
 
 void FSceneRenderer::RenderDeferredLighting(FRenderer* Renderer, const FSceneViewTargets& Targets)
@@ -106,7 +117,8 @@ void FSceneRenderer::RenderDeferredLighting(FRenderer* Renderer, const FSceneVie
 	if (Renderer)
 		Renderer->DrawDeferredLighting(View, Targets, RenderData.AmbientLight,
 			RenderData.VisibleDirectionalLights,
-			RenderData.VisiblePointLights, RenderData.VisibleSpotLights);
+			RenderData.VisiblePointLights, RenderData.VisibleSpotLights,
+			RenderData.bHasSkyLight ? &RenderData.SkyLight : nullptr);
 }
 
 void FSceneRenderer::RenderToneMap(FRenderer* Renderer, const FSceneViewTargets& Targets)

@@ -37,11 +37,14 @@ cbuffer Lighting : register(b1)
     float4 CameraPosition;
     uint4 LightCounts; // x: 포인트 개수, y: 스포트 개수, z: 방향광 개수
     uint4 LightOffsets; // SceneLights에서 각 종류가 시작되는 위치, 순서는 위와 같음
+    float4 SkyColorIntensity; // rgb: Sky Light 색상, a: 세기 (0이면 비활성)
 };
 
 StructuredBuffer<FSceneLightRenderInfo> SceneLights : register(t8);
 StructuredBuffer<uint> ClusterCounts : register(t9);
 StructuredBuffer<uint> ClusterLightIndices : register(t10);
+TextureCube<float4> SkyIrradiance : register(t11);
+SamplerState SkySampler : register(s1);
 
 // Compute 패스의 b0와 같은 상수 버퍼를 픽셀 셰이더의 b3에도 바인딩한다.
 cbuffer ForwardClusterConstants : register(b3)
@@ -130,6 +133,13 @@ float3 CalculateAmbientLight(FAmbientLightInfo Info)
     return Info.ColorIntensity.rgb * max(Info.ColorIntensity.a, 0.0f);
 }
 
+float3 CalculateSkyLight(float3 N)
+{
+    if (SkyColorIntensity.a <= 0.0f) return 0.0f;
+    return SkyIrradiance.SampleLevel(SkySampler, N, 0).rgb *
+        SkyColorIntensity.rgb * SkyColorIntensity.a;
+}
+
 float3 CalculateSpecular(float3 N, float3 V, float3 L, float3 Radiance)
 {
     float Strength = max(SurfaceParams.x, 0.0f);
@@ -198,7 +208,7 @@ void CalculateSpotLight(inout FLightResult Result, FSceneLightRenderInfo Info,
 FLightResult CalculateBaseLighting(float3 N, float3 V, bool bIncludeSpecular)
 {
     FLightResult Result;
-    Result.Diffuse = CalculateAmbientLight(Ambient);
+    Result.Diffuse = CalculateAmbientLight(Ambient) + CalculateSkyLight(N);
     Result.Specular = 0.0f;
 
     [loop]

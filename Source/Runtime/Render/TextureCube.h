@@ -16,9 +16,11 @@ public:
 	{
 		return Face < FaceCount ? FaceRTVs[Face].Get() : nullptr;
 	}
+	ID3D11UnorderedAccessView* GetUAV() const { return UAV.Get(); }
 
 private:
 	void CreateViews(ID3D11Device* Device, const D3D11_TEXTURE2D_DESC& InDesc);
 
 	ComPtr<ID3D11RenderTargetView> FaceRTVs[FaceCount];
+	ComPtr<ID3D11UnorderedAccessView> UAV;
 };

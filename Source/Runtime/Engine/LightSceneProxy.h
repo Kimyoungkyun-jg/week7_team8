@@ -2,25 +2,26 @@
 
 #include "Render/LightRenderData.h"
 
-class ULightComponent;
+class ULightComponentBase;
 class UPointLightComponent;
 class UDirectionalLightComponent;
 class USpotLightComponent;
+class USkyLightComponent;
 
 // 월드의 라이트 컴포넌트를 렌더러가 읽을 수 있는 값으로 복사한다.
 class FLightSceneProxy
 {
 public:
-	explicit FLightSceneProxy(ULightComponent* InComponent) : Component(InComponent) {}
+	explicit FLightSceneProxy(ULightComponentBase* InComponent) : Component(InComponent) {}
 	virtual ~FLightSceneProxy() = default;
 	virtual void Update() = 0;
-	ULightComponent* GetComponent() const { return Component; }
+	ULightComponentBase* GetComponent() const { return Component; }
 	bool IsEnabled() const { return bEnabled; }
 	bool IsShown(bool bGameView) const { return bVisible && !(bGameView && bHiddenInGame); }
 
 protected:
 	void UpdateCommon(bool bComponentEnabled);
-	ULightComponent* Component = nullptr;
+	ULightComponentBase* Component = nullptr;
 	bool bEnabled = false;
 
 private:
@@ -59,4 +60,15 @@ public:
 
 private:
 	FSpotLightRenderData RenderData{};
+};
+
+class FSkyLightSceneProxy : public FLightSceneProxy
+{
+public:
+	explicit FSkyLightSceneProxy(USkyLightComponent* InComponent);
+	void Update() override;
+	const FSkyLightRenderData& GetRenderData() const { return RenderData; }
+
+private:
+	FSkyLightRenderData RenderData{};
 };

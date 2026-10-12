@@ -3,6 +3,7 @@
 #include "Component/PointLightComponent.h"
 #include "Component/DirectionalLightComponent.h"
 #include "Component/SpotLightComponent.h"
+#include "Component/SkyLightComponent.h"
 
 #include <algorithm>
 #include <cmath>
@@ -90,4 +91,23 @@ void FSpotLightSceneProxy::Update()
 	RenderData.InnerCosFalloff = FVector4(std::cos(FMath::DegreesToRadians(InnerAngle)),
 		std::max(0.0f, SpotComponent->GetFalloff()), 0.0f, 0.0f);
 	bEnabled = bEnabled && Radius > 0.0f;
+}
+
+FSkyLightSceneProxy::FSkyLightSceneProxy(USkyLightComponent* InComponent)
+	: FLightSceneProxy(InComponent)
+{
+	Update();
+}
+
+void FSkyLightSceneProxy::Update()
+{
+	auto* SkyComponent = static_cast<USkyLightComponent*>(Component);
+	UpdateCommon(SkyComponent && SkyComponent->IsEnabled());
+	if (!SkyComponent) return;
+
+	const FVector4& Color = SkyComponent->GetLightColor();
+	RenderData.ColorIntensity = FVector4(
+		std::max(0.0f, Color.X), std::max(0.0f, Color.Y), std::max(0.0f, Color.Z),
+		std::max(0.0f, SkyComponent->GetIntensity()));
+	RenderData.SourcePath = SkyComponent->GetSourcePath();
 }

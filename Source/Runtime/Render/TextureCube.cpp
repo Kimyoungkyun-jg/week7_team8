@@ -67,4 +67,17 @@ void FTextureCube::CreateViews(ID3D11Device* Device, const D3D11_TEXTURE2D_DESC&
 				HTR_LOG(Error, "[TextureCube] CreateRenderTargetView failed (face={}, hr=0x{:08X})", Face, (uint32)hr);
 		}
 	}
+
+	if (InDesc.BindFlags & D3D11_BIND_UNORDERED_ACCESS)
+	{
+		D3D11_UNORDERED_ACCESS_VIEW_DESC UavDesc{};
+		UavDesc.Format = InDesc.Format;
+		UavDesc.ViewDimension = D3D11_UAV_DIMENSION_TEXTURE2DARRAY;
+		UavDesc.Texture2DArray.MipSlice = 0;
+		UavDesc.Texture2DArray.FirstArraySlice = 0;
+		UavDesc.Texture2DArray.ArraySize = FaceCount;
+		hr = Device->CreateUnorderedAccessView(Texture.Get(), &UavDesc, UAV.GetAddressOf());
+		if (FAILED(hr))
+			HTR_LOG(Error, "[TextureCube] CreateUnorderedAccessView failed (hr=0x{:08X})", (uint32)hr);
+	}
 }
