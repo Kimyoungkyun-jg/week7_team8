@@ -91,12 +91,12 @@ void USpotLightComponent::DrawDebug(FLineBatcher* LineBatcher) const
 	// tan(90도)는 무한대라 원뿔 정점이 NaN이 되므로 여기서 막는다.
 	const float SafeOuterAngle = FMath::Clamp(OuterConeAngle, 0.0f, 89.0f);
 	const float SafeInnerAngle = FMath::Clamp(InnerConeAngle, 0.0f, SafeOuterAngle);
-	const float SafeRadius = (AttenuationRadius > 0.0f) ? AttenuationRadius : 0.0f;
+	const float SafeRadius = (GetAttenuationRadius() > 0.0f) ? GetAttenuationRadius() : 0.0f;
 
 	// 바깥 원뿔은 라이트 색 그대로, 안쪽은 구분되도록 흐리게
-	AddWireCone(LineBatcher, Apex, Forward, Right, Up, SafeOuterAngle, SafeRadius, LightColor);
+	AddWireCone(LineBatcher, Apex, Forward, Right, Up, SafeOuterAngle, SafeRadius, GetLightColor());
 
-	FVector4 InnerColor(LightColor.X * 0.5f, LightColor.Y * 0.5f, LightColor.Z * 0.5f, LightColor.W);
+	FVector4 InnerColor(GetLightColor().X * 0.5f, GetLightColor().Y * 0.5f, GetLightColor().Z * 0.5f, GetLightColor().W);
 
 	AddWireCone(LineBatcher, Apex, Forward, Right, Up, SafeInnerAngle, SafeRadius, InnerColor);
 }

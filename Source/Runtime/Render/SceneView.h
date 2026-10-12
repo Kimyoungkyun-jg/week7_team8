@@ -8,8 +8,6 @@
 
 #include "Render/RenderPacket.h"
 
-
-
 // 씬 렌더링 시점 정보
 struct FSceneView
 {

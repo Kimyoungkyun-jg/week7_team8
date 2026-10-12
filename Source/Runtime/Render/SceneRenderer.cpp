@@ -37,13 +37,45 @@ void FSceneRenderer::InitViews(FRenderer* Renderer)
 	// 렌더 큐 자체 정렬
 	RenderData.RenderQueue.Sort();
 
+	bool bHasDirectionalLight = false;
+
 	for (const FLightSceneProxy* Light : World->GetScene().GetLights()) // 월드에 있는 모든 라이트 정보 가져오기
 	{
 		if (!Light->IsEnabled() || !Light->IsShown(View.bGameView)) continue;
-		const FPointLightRenderData& Data = Light->GetRenderData();
-		const float Radius = Data.PositionRadius.W;
+
+		switch (Light->GetLightType())
+		{
+			case ELightType::Ambient:
+			{
+				FVector4 Color = Light->GetColorIntensity();
+
+				// RGB에는 색 × 강도의 합계를 저장한다.
+				RenderData.AmbientLightColor.X += Color.X * Color.W;
+				RenderData.AmbientLightColor.Y += Color.Y * Color.W;
+				RenderData.AmbientLightColor.Z += Color.Z * Color.W;
+				break;
+			}
+			
+			case ELightType::Directional:
+			{
+				if (!bHasDirectionalLight)
+				{
+					RenderData.VisibleDirectionalLights = Light->GetDirectionalLightData();
+					bHasDirectionalLight = true;
+				}
+				break;
+			}
+			case ELightType::Point:
+				RenderData.VisiblePointLights.Add(Light->GetPointLightData());
+				break;
+			case ELightType::Spot:
+				RenderData.VisibleSpotLights.Add(Light->GetSpotLightData());
+				break;
+
+		}
+		
 		bool bInView = true;
-		for (const FPlane& Plane : View.Frustum.Planes)
+/*		for (const FPlane& Plane : View.Frustum.Planes)
 		{
 			const float Distance = Plane.Normal.X * Data.PositionRadius.X +
 				Plane.Normal.Y * Data.PositionRadius.Y +
@@ -55,10 +87,9 @@ void FSceneRenderer::InitViews(FRenderer* Renderer)
 				bInView = false;
 				break;
 			}
-		}
+		} */
 		if (!bInView) continue;
-		if (RenderData.VisiblePointLights.Num() >= MaxDeferredPointLights) break;
-		RenderData.VisiblePointLights.Add(Data);
+		//if (RenderData.VisiblePointLights.Num() >= MaxDeferredPointLights) break;
 	}
 }
 
@@ -71,6 +102,12 @@ bool FSceneRenderer::RenderGBuffer(FRenderer* Renderer, const FDeferredViewTarge
 	Renderer->RenderOpaque(View, RenderData.RenderQueue, true);
 	RenderCommand::EndRenderPass();
 	return true;
+}
+
+void FSceneRenderer::RenderForwardLighting(FRenderer* Renderer)
+{
+	PrepareDrawData(Renderer, RenderData);
+	Renderer->RenderOpaque(View, RenderData.RenderQueue, false);
 }
 
 void FSceneRenderer::RenderDeferredLighting(FRenderer* Renderer, const FDeferredViewTargets& Targets)

@@ -31,7 +31,16 @@ namespace
 		FVector4 ViewportLightCount;
 		FPointLightRenderData PointLights[MaxDeferredPointLights];
 	};
-	static_assert(sizeof(FPointLightRenderData) == 32);
+
+	struct FForwardLightConstants
+	{
+		FVector4 CameraPosition; // W: perspective projection
+		FVector4 CameraForward;
+		FVector4 ViewportLightCount;
+		FPointLightRenderData PointLights[MaxDeferredPointLights];
+	};
+
+	static_assert(sizeof(FPointLightRenderData) == 48);
 	static_assert(sizeof(FDeferredLightConstants) % 16 == 0);
 	// VSSetConstantBuffers1의 오프셋은 16개 상수(256바이트) 단위여야 하므로 오브젝트마다 256바이트 칸을 쓴다.
 	constexpr uint32 PerObjectSlotConstants = 16;
@@ -435,7 +444,11 @@ void FRenderer::EndObjectConstants()
 void FRenderer::BindMaterial(UMaterial* material, bool bInWireframe, bool bGBufferPass)
 {
 	EPSOType PSOType = material->PSOType;
-	if (bGBufferPass && PSOType == EPSOType::StaticMesh_Opaque)
+	if (!bGBufferPass && PSOType == EPSOType::StaticMesh_Opaque)
+	{
+		PSOType = EPSOType::StaticMesh_ForwardOpaque;
+	}
+	else if (bGBufferPass && PSOType == EPSOType::StaticMesh_Opaque)
 	{
 		PSOType = EPSOType::StaticMesh_GBuffer;
 	}
@@ -447,8 +460,7 @@ void FRenderer::BindMaterial(UMaterial* material, bool bInWireframe, bool bGBuff
 	if (FPipelineState* PSO = FRenderResourceManager::GetPSO(PSOType))
 	{
 		RenderCommand::BindPipelineState(*PSO);
-
-		if (bGBufferPass && bInWireframe)
+		if (bInWireframe && material->PSOType == EPSOType::StaticMesh_Opaque)
 			RenderCommand::SetRasterizerState(ERasterizerState::Wireframe);
 	}
 	// 텍스처와 샘플러 바인딩

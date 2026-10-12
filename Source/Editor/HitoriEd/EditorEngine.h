@@ -80,6 +80,7 @@ private:
 		bool bEnableFog = true;
 		bool bEnableFXAA = false;
 		bool bShowSceneDepth = false;
+		bool bUseForwardRendering = true;
 		float SceneDepthRange = 1.0f;
 	};
 	// Common scene passes. Leaves SceneColor/Depth bound for caller overlays and EndRenderPass.

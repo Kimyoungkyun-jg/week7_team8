@@ -21,7 +21,8 @@ enum class EPSOType : uint8
 	ToneMap,
 	FireBall,
 	Billboard,
-	Count
+	StaticMesh_ForwardOpaque, // 포워드 렌더링용 불투명
+	Count,
 };
 
 class FRenderResourceManager

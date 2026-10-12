@@ -61,6 +61,7 @@ private:
 	TUniquePtr<FConstantBuffer> PerObjectCB;
 	TUniquePtr<FConstantBuffer> ViewCB;
 	TUniquePtr<FConstantBuffer> DeferredLightCB;
+	TUniquePtr<FConstantBuffer> ForwardLightCB;
 
 	// 오브젝트 상수 버퍼
 	TUniquePtr<FConstantBuffer> PerObjectSlotCB;

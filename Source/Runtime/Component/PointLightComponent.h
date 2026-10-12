@@ -1,37 +1,34 @@
 #pragma once
 
-#include "Component/LightComponent.h"
+#include "LocalLightComponent.h"
 #include "Math/Vector4.h"
 
-class UPointLightComponent : public ULightComponent
+class UPointLightComponent : public ULocalLightComponent
 {
-	DECLARE_CLASS(UPointLightComponent, ULightComponent)
+	DECLARE_CLASS(UPointLightComponent, ULocalLightComponent)
 	REFLECT_START(UPointLightComponent)
-		PROPERTY_TYPE(LightColor, Color)
-		PROPERTY(Intensity)
-		PROPERTY(AttenuationRadius)
-		PROPERTY(bEnabled)
+		PROPERTY(Falloff)
 	REFLECT_END()
 
 public:
-	~UPointLightComponent() override { UnregisterComponent(); }
-	const FVector4& GetLightColor() const { return LightColor; }
-	void SetLightColor(const FVector4& InColor) { LightColor = InColor; OnPropertyChanged("LightColor"); }
-	float GetIntensity() const { return Intensity; }
-	void SetIntensity(float InIntensity) { Intensity = InIntensity; OnPropertyChanged("Intensity"); }
-	float GetAttenuationRadius() const { return AttenuationRadius; }
-	void SetAttenuationRadius(float InRadius) { AttenuationRadius = InRadius; OnPropertyChanged("AttenuationRadius"); }
-	bool IsEnabled() const { return bEnabled; }
-	void SetEnabled(bool bInEnabled) { bEnabled = bInEnabled; OnPropertyChanged("bEnabled"); }
+	UPointLightComponent() = default;
+	UPointLightComponent(UPointLightComponent&&) = delete;
+	~UPointLightComponent() override = default;
+	UPointLightComponent(const UPointLightComponent&) = delete;
+	UPointLightComponent& operator=(const UPointLightComponent&) = delete;
+
+
+	float GetFalloff() const { return Falloff; }
+	void SetFalloff(float InFalloff) { Falloff = InFalloff; }
+
+	ELightType GetLightType() const override { return ELightType::Point; }
 
 protected:
-	bool ShouldCreateRenderState() const override { return true; }
+/*	bool ShouldCreateRenderState() const override { return true; }
 	void CreateRenderState() override;
-	void DestroyRenderState() override;
+	void DestroyRenderState() override;*/
 
 private:
-	FVector4 LightColor{1.0f, 1.0f, 1.0f, 1.0f};
-	float Intensity = 8.0f;
-	float AttenuationRadius = 10.0f;
-	bool bEnabled = true;
+	float Falloff = 1.0f;
+
 };

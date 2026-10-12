@@ -8,15 +8,15 @@ FScene::~FScene()
 	RemoveAllLights();
 }
 
-void FScene::AddLight(UPointLightComponent* Component)
+void FScene::AddLight(ULightComponent* Component)
 {
 	if (!Component) return;
 	for (FLightSceneProxy* Proxy : Lights)
 		if (Proxy->GetComponent() == Component) return;
-	Lights.Add(new FLightSceneProxy(Component));
+	Lights.Add(new FLightSceneProxy(Component,Component->GetLightType()));
 }
 
-void FScene::RemoveLight(UPointLightComponent* Component)
+void FScene::RemoveLight(ULightComponent* Component)
 {
 	for (uint32 Index = 0; Index < Lights.Num(); ++Index)
 	{

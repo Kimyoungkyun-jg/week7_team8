@@ -730,14 +730,25 @@ bool UEditorEngine::RenderSceneFrame(FDeferredViewTargets& Targets, const FScene
 	if (!Width || !Height || !Targets.IsValidFor(Width, Height))
 		return false;
 
-	// GBuffer -> HDR lighting -> skybox and tone mapping.
+	//    GBuffer -> HDR lighting -> skybox and tone mapping.
+	// or Forward lighting -> skybox and tone mapping.
 	if (Options.bDrawPrimitives)
 	{
-		if (!SceneRenderer.RenderGBuffer(Renderer, Targets, Width, Height))
-			return false;
-		RenderCommand::BeginRenderPass(Targets.LightingHDR.get(), nullptr, Width, Height);
-		SceneRenderer.RenderDeferredLighting(Renderer, Targets);
-		RenderCommand::EndRenderPass();
+		if (Options.bUseForwardRendering)
+		{
+			RenderCommand::BeginRenderPass(Targets.LightingHDR.get(), DepthTarget, Width, Height);
+			SceneRenderer.RenderForwardLighting(Renderer);
+			RenderCommand::EndRenderPass();
+		}
+		else
+		{
+			if (!SceneRenderer.RenderGBuffer(Renderer, Targets, Width, Height))
+				return false;
+			RenderCommand::BeginRenderPass(Targets.LightingHDR.get(), nullptr, Width, Height);
+			SceneRenderer.RenderDeferredLighting(Renderer, Targets);
+			RenderCommand::EndRenderPass();
+		}
+
 	}
 	else
 		RenderCommand::ClearDepthStencil(DepthTarget);

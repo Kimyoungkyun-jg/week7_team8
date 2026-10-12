@@ -41,8 +41,13 @@ struct FSceneRenderData
 	TArray<uint8> SelectedLODs;
 	TArray<FGatherChunk> GatherChunks;
 	TArray<FPerObjectConstants> ObjectConstants;
-	TArray<FPointLightRenderData> VisiblePointLights;
 
+	// 일단 AmbientLightColor를 상수로 두고, 나중에 여러개 AmbientLight를 지원하도록 바꾼다. 
+	FVector4 AmbientLightColor{};
+	FDirectionalLightRenderData VisibleDirectionalLights{};
+	TArray<FPointLightRenderData> VisiblePointLights;
+	TArray<FSpotLightRenderData>  VisibleSpotLights;
+	
 	void ResetScene()
 	{
 		ResetFrame();
@@ -61,7 +66,14 @@ struct FSceneRenderData
 		LODInputs.Reset();
 		SelectedLODs.Reset();
 		ObjectConstants.Reset();
+
+		AmbientLightColor = FVector4(0.0f, 0.0f, 0.0f, 1.0f);
+		VisibleDirectionalLights = FDirectionalLightRenderData{};
+		VisibleDirectionalLights.Direction = FVector4(1.0f, 0.0f, 0.0f, 0.0f);
+		VisibleDirectionalLights.ColorIntensity = FVector4(1.0f, 1.0f, 1.0f, 1.0f);
+		VisibleSpotLights.Reset();
 		VisiblePointLights.Reset();
+
 		for (FGatherChunk& Chunk : GatherChunks)
 		{
 			Chunk.Packets.Reset();

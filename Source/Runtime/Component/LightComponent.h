@@ -1,12 +1,33 @@
 #pragma once
 
-#include "SceneComponent.h"
+#include "LightComponentBase.h"
 
-class ULightComponent : public USceneComponent
+class FLightSceneProxy;
+
+enum class ELightType : uint8
 {
-	DECLARE_CLASS(ULightComponent, USceneComponent)
+	Ambient,
+	Point,
+	Spot,
+	Directional,
+};
+
+class ULightComponent : public ULightComponentBase
+{
+	DECLARE_CLASS(ULightComponent, ULightComponentBase)
 	REFLECT_START(ULightComponent)
-	REFLECT_END()
+		REFLECT_END()
 public:
+	virtual ELightType GetLightType() const = 0;
+
+	~ULightComponent() override
+	{
+		UnregisterComponent();
+	};
+
+protected:
+	bool ShouldCreateRenderState() const override { return true; }
+	void CreateRenderState() override;
+	void DestroyRenderState() override;
 private:
 };
