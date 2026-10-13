@@ -107,6 +107,7 @@ bool FSceneRenderer::RenderGBuffer(FRenderer* Renderer, const FDeferredViewTarge
 void FSceneRenderer::RenderForwardLighting(FRenderer* Renderer)
 {
 	PrepareDrawData(Renderer, RenderData);
+	Renderer->UpdateForwardLighting(View, RenderData);
 	Renderer->RenderOpaque(View, RenderData.RenderQueue, false);
 }
 

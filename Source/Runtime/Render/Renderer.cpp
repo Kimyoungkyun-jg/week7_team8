@@ -11,6 +11,7 @@
 #include "RenderCommand.h"
 #include "RenderResourceManager.h"
 #include "DeferredViewTargets.h"
+#include "SceneRenderData.h"
 
 #include "Camera/CameraComponent.h"
 
@@ -36,12 +37,17 @@ namespace
 	{
 		FVector4 CameraPosition; // W: perspective projection
 		FVector4 CameraForward;
-		FVector4 ViewportLightCount;
-		FPointLightRenderData PointLights[MaxDeferredPointLights];
+
+		FVector4 AmbientLightColor;
+		FVector4 ViewportLightCount; // X: Point 개수, Y: Spot 개수, ZW: 패딩
+		FDirectionalLightRenderData  DirectionalLight; // W: 패딩
+		FPointLightRenderData PointLights[MaxForwardPointLights];
+		FSpotLightRenderData SpotLights[MaxForwardSpotLights];
 	};
 
 	static_assert(sizeof(FPointLightRenderData) == 48);
 	static_assert(sizeof(FDeferredLightConstants) % 16 == 0);
+	static_assert(sizeof(FForwardLightConstants) % 16 == 0);
 	// VSSetConstantBuffers1의 오프셋은 16개 상수(256바이트) 단위여야 하므로 오브젝트마다 256바이트 칸을 쓴다.
 	constexpr uint32 PerObjectSlotConstants = 16;
 	static_assert(sizeof(FPerObjectConstants) <= ObjectSlotBytes);
@@ -69,7 +75,7 @@ bool FRenderer::Init()
 	PerObjectCB = RenderCommand::CreateConstantBuffer(sizeof(FPerObjectConstants));
 	ViewCB = RenderCommand::CreateConstantBuffer(sizeof(FMatrix));
 	DeferredLightCB = RenderCommand::CreateConstantBuffer(sizeof(FDeferredLightConstants));
-
+	ForwardLightCB = RenderCommand::CreateConstantBuffer(sizeof(FForwardLightConstants));
 	GPUOcclusion.Init();   // 실패해도 오클루전만 못 쓸 뿐 렌더링은 된다
 
 	return true;
@@ -100,6 +106,7 @@ void FRenderer::EnsurePerObjectSlotCapacity(uint32 SlotCount)
 void FRenderer::SetupView(const FSceneView& View)
 {
 	bCurrentWireframe = View.bIsWireframe;
+	CurrentLightingModel = View.LightingModel;
 	RenderCommand::UpdateBufferData(ViewCB.get(), &View.ViewProjectionMatrix);
 }
 
@@ -116,6 +123,42 @@ void FRenderer::RenderOpaque(const FSceneView& View, const FRenderQueue& InQueue
 	SetupView(View);
 	DrawStaticGroups(bGBufferPass);
 	DrawPackets(InQueue, 0, InQueue.GetFirstTranslucentIndex(), View.ViewProjectionMatrix, bGBufferPass);
+}
+
+// CB만 업데이트하고, 바인딩은 렌더링 전에 한 번만 한다.
+void FRenderer::UpdateForwardLighting(const FSceneView& View, const FSceneRenderData& RenderData)
+{
+	FForwardLightConstants Constants{};
+
+	Constants.CameraPosition = FVector4(View.ViewLocation, View.bIsPerspective ? 1.0f : 0.0f);
+
+	Constants.CameraForward = FVector4(View.ViewForward, 0.0f);
+
+	Constants.AmbientLightColor = RenderData.AmbientLightColor;
+	Constants.DirectionalLight = RenderData.VisibleDirectionalLights;
+
+	const uint32 PointCount = std::min<uint32>
+		(static_cast<uint32>(RenderData.VisiblePointLights.Num()),MaxForwardPointLights);
+
+	const uint32 SpotCount = std::min<uint32>
+		(static_cast<uint32>(RenderData.VisibleSpotLights.Num()),MaxForwardSpotLights);
+
+	Constants.ViewportLightCount = FVector4(
+		static_cast<float>(PointCount),
+		static_cast<float>(SpotCount),
+		0.0f, 0.0f);
+
+	for (uint32 Index = 0; Index < PointCount; ++Index)
+		Constants.PointLights[Index] = RenderData.VisiblePointLights[Index];
+
+	for (uint32 Index = 0; Index < SpotCount; ++Index)
+		Constants.SpotLights[Index] = RenderData.VisibleSpotLights[Index];
+
+	RenderCommand::UpdateBufferData(ForwardLightCB.get(), &Constants, sizeof(Constants));
+
+	RenderCommand::BindConstantBuffer(4, ForwardLightCB.get(), EShaderBindFlagBits::Vertex);
+
+	RenderCommand::BindConstantBuffer(4, ForwardLightCB.get(), EShaderBindFlagBits::Pixel);
 }
 
 void FRenderer::DrawDeferredLighting(const FSceneView& View, const FDeferredViewTargets& Targets,
@@ -446,7 +489,21 @@ void FRenderer::BindMaterial(UMaterial* material, bool bInWireframe, bool bGBuff
 	EPSOType PSOType = material->PSOType;
 	if (!bGBufferPass && PSOType == EPSOType::StaticMesh_Opaque)
 	{
-		PSOType = EPSOType::StaticMesh_ForwardOpaque;
+		switch (CurrentLightingModel)
+		{
+		case ELightingModel::Gouraud:
+			PSOType = EPSOType::StaticMesh_ForwardGouraud;
+			break;
+		case ELightingModel::BlinnPhong:
+			PSOType = EPSOType::StaticMesh_ForwardPhong;
+			break;
+		case ELightingModel::Unlit:
+			PSOType = EPSOType::StaticMesh_ForwardUnLit;
+			break;
+		default:
+			PSOType = EPSOType::StaticMesh_ForwardOpaque;
+			break;
+		}
 	}
 	else if (bGBufferPass && PSOType == EPSOType::StaticMesh_Opaque)
 	{
@@ -490,8 +547,11 @@ void FRenderer::UpdateMaterialParams(const FRenderPacket& RenderPacket)
 		FStaticMeshMaterialParams Params{};
 		Params.BaseColor = RenderPacket.Material->BaseColor;
 		Params.UVOffset = RenderPacket.Material->UVScrollSpeed * TotalTime;
+		Params.SpecularIntensity = RenderPacket.Material->SpecularIntensity;
+		Params.Shineness = RenderPacket.Material->Shineness;
 		RenderCommand::UpdateBufferData(RenderPacket.Material->ParamBuffer.get(), &Params, sizeof(FStaticMeshMaterialParams));
 		RenderCommand::BindConstantBuffer(1, RenderPacket.Material->ParamBuffer.get(), EShaderBindFlagBits::Pixel);
+		RenderCommand::BindConstantBuffer(1, RenderPacket.Material->ParamBuffer.get(), EShaderBindFlagBits::Vertex);
 		break;
 	}
 	case EPSOType::Particle_AlphaBlend:

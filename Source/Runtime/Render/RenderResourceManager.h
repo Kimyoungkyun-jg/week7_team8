@@ -22,6 +22,9 @@ enum class EPSOType : uint8
 	FireBall,
 	Billboard,
 	StaticMesh_ForwardOpaque, // 포워드 렌더링용 불투명
+	StaticMesh_ForwardGouraud,
+	StaticMesh_ForwardPhong,
+	StaticMesh_ForwardUnLit,
 	Count,
 };
 

@@ -1,7 +1,7 @@
 #include "EnginePCH.h"
 #include "RenderUtil.h"
 
-FShaderByteCode RenderUtil::CompileShader(FString Path, const char* EntryPoint, EShaderType ShaderType)
+FShaderByteCode RenderUtil::CompileShader(FString Path, const char* EntryPoint, EShaderType ShaderType, const D3D_SHADER_MACRO* Defines)
 {
 	const char* Target = (ShaderType == EShaderType::Vertex) ? "vs_5_0" : "ps_5_0";
 
@@ -15,7 +15,7 @@ FShaderByteCode RenderUtil::CompileShader(FString Path, const char* EntryPoint, 
 	std::wstring WPath(Path.begin(), Path.end());
 
 	ComPtr<ID3DBlob> ErrorBlob;
-	HRESULT hr = D3DCompileFromFile(WPath.c_str(), nullptr, nullptr, EntryPoint, Target, 0, 0, ByteCode.Blob.GetAddressOf(), ErrorBlob.GetAddressOf());
+	HRESULT hr = D3DCompileFromFile(WPath.c_str(), Defines, D3D_COMPILE_STANDARD_FILE_INCLUDE, EntryPoint, Target, Flags, 0, ByteCode.Blob.GetAddressOf(), ErrorBlob.GetAddressOf());
 
 	if (FAILED(hr))
 	{
@@ -63,6 +63,7 @@ FString RenderUtil::GetCsoPath(const FString& ShaderPath, EShaderType ShaderType
 
 	fs::path Out = fs::path("Intermediate/Shaders") / Rel.parent_path();
 	Out /= Rel.stem().generic_string() + Suffix;
+
 	return Out.generic_string();
 }
 

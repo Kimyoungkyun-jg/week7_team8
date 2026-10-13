@@ -69,8 +69,8 @@ struct FSceneRenderData
 
 		AmbientLightColor = FVector4(0.0f, 0.0f, 0.0f, 1.0f);
 		VisibleDirectionalLights = FDirectionalLightRenderData{};
-		VisibleDirectionalLights.Direction = FVector4(1.0f, 0.0f, 0.0f, 0.0f);
-		VisibleDirectionalLights.ColorIntensity = FVector4(1.0f, 1.0f, 1.0f, 1.0f);
+		VisibleDirectionalLights.Direction = FVector4(0.0f, 0.0f, 0.0f, 0.0f);
+		VisibleDirectionalLights.ColorIntensity = FVector4(0.0f, 0.0f, 0.0f, 0.0f);
 		VisibleSpotLights.Reset();
 		VisiblePointLights.Reset();
 

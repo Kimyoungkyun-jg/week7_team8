@@ -15,6 +15,10 @@
 #include "Component/ExponentialHeightFogComponent.h"
 #include "Component/ProjectileMovementComponent.h"
 #include "Component/FireBallComponent.h"
+#include "Component/AmbientLightComponent.h"
+#include "Component/DirectionalLightComponent.h"
+#include "Component/PointLightComponent.h"
+#include "Component/SpotLightComponent.h"
 #include "Asset/AssetManager.h"
 #include "Render/Material.h"
 #include "Render/Texture2D.h"
@@ -562,12 +566,16 @@ namespace
 				"None",
 				"PointLight_64x",
 				"SpotLight_64x",
+				"AmbientLight_256x",
+				"DirectionalLight_256x",
 				"Pawn_64x"
 			};
 			static const char* IconPaths[] = {
 				"",
 				"Editor/Icon/PointLight_64x.png",
 				"Editor/Icon/SpotLight_64x.png",
+				"Editor/Icon/AmbientLight_256x.png", // Note: AmbientLightComponent의 아이콘이 없으므로 SkyLight 아이콘을 사용
+				"Editor/Icon/DirectionalLight_256x.png",
 				"Editor/Icon/Pawn_64x.png"
 			};
 			// 현재 선택된 아이콘 인덱스 찾기
@@ -1032,7 +1040,7 @@ void FDetailsPanel::DrawAddComponentPopup(AActor * Owner)
 				NewComp->SetupAttachment(Owner->GetRootComponent());
 				NewComp->SetParticles(10);
 			}
-				
+			
 
 			NewComp->RegisterComponent();
 		}
@@ -1070,6 +1078,22 @@ void FDetailsPanel::DrawAddComponentPopup(AActor * Owner)
 				NewComp->SetupAttachment(Owner->GetRootComponent());
 			NewComp->RegisterComponent();
 		}
+		if (ImGui::Selectable("Ambient Light Component"))
+		{
+			auto* NewComp = Owner->CreateDefaultSubobject<UAmbientLightComponent>("AmbientLight");
+			if (Owner->GetRootComponent())
+				NewComp->SetupAttachment(Owner->GetRootComponent());
+			NewComp->RegisterComponent();
+		}
+		if (ImGui::Selectable("Directional Light Component"))
+		{
+			auto* NewComp = Owner->CreateDefaultSubobject<UDirectionalLightComponent>("DirectionalLight");
+			if (Owner->GetRootComponent())
+				NewComp->SetupAttachment(Owner->GetRootComponent());
+			NewComp->RegisterComponent();
+		}
+
+
 		ImGui::EndPopup();
 	}
 

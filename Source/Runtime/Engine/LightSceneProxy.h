@@ -31,6 +31,7 @@ struct FDirectionalLightRenderData
 
 inline constexpr uint32 MaxDeferredPointLights = 32;
 inline constexpr uint32 MaxForwardPointLights = 32;
+inline constexpr uint32 MaxForwardSpotLights = 32;
 
 // 월드의 라이트 컴포넌트를 렌더러가 읽을 수 있는 값으로 복사한다.
 class FLightSceneProxy

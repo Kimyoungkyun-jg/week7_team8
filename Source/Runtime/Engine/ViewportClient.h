@@ -20,7 +20,11 @@ enum class EViewportMode : uint8
 	Solid,
 	Wireframe,
 	SceneDepth,
-	None
+	Lit_Gouraud,
+	Lit_Lambert,
+	Lit_Phong,
+	Unlit,
+	None,
 };
 
 // 뷰포트 클라이언트 인터페이스

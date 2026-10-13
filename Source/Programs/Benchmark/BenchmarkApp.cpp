@@ -335,6 +335,7 @@ void UBenchmarkEngine::Tick(float DeltaTime)
 	{
 		SCOPE_CYCLE_COUNTER(STAT_RenderOpaqueTotal);
 		FSceneRenderer::PrepareDrawData(Renderer, RenderData);
+		Renderer->UpdateForwardLighting(BenchmarkView, RenderData);
 		Renderer->RenderOpaque(BenchmarkView, RenderData.RenderQueue);
 	}
 

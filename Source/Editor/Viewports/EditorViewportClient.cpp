@@ -159,6 +159,22 @@ FSceneView FEditorViewportClient::CalcSceneView(const FRect &InViewRect) const {
   OutView.OrthoWidth = OrthoWidth;
   OutView.bIsPerspective = bIsPerspective;
   OutView.bIsWireframe = ViewportMode == EViewportMode::Wireframe;
+
+  switch (ViewportMode)
+  {
+  case EViewportMode::Lit_Gouraud:
+      OutView.LightingModel = ELightingModel::Gouraud;
+      break;
+  case EViewportMode::Lit_Phong:
+      OutView.LightingModel = ELightingModel::BlinnPhong;
+      break;
+  case EViewportMode::Unlit:
+      OutView.LightingModel = ELightingModel::Unlit;
+      break;
+  default:
+      break;
+  }
+
   return OutView;
 }
 

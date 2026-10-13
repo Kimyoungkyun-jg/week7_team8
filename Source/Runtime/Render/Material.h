@@ -10,7 +10,8 @@ struct FStaticMeshMaterialParams
 {
 	FVector4 BaseColor;
 	FVector2 UVOffset;
-	FVector2 Padding;
+	float SpecularIntensity; // 하이라이트 밝기(세기)
+	float Shineness ; // 하이라이트의 날카로움
 };
 
 class UMaterial : public UMaterialInterface
@@ -32,6 +33,8 @@ public:
 
 	FVector4 BaseColor = FVector4(1, 1, 1, 1);
 	FVector2 UVScrollSpeed = FVector2(0.0f, 0.0f);
+	float SpecularIntensity = 0.5f; // 하이라이트 밝기(세기)
+	float Shineness = 32.0f; // 하이라이트의 날카로움
 
 	bool bIsInstance = false;
 

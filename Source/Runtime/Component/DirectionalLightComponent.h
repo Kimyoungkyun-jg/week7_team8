@@ -10,6 +10,9 @@ class UDirectionalLightComponent : public ULightComponent
 	REFLECT_START(UDirectionalLightComponent)
 		REFLECT_END()
 public:
+	UDirectionalLightComponent() = default;
+	~UDirectionalLightComponent() override = default;
+
 	ELightType GetLightType() const override { return ELightType::Directional; }
 private:
 };

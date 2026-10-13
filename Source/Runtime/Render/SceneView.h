@@ -5,6 +5,7 @@
 #include "Math/Rotator.h"
 #include "Math/Matrix.h"
 #include "Math/Frustum.h"
+#include "Render/RenderEnums.h"
 
 #include "Render/RenderPacket.h"
 
@@ -41,6 +42,7 @@ struct FSceneView
 	bool bIsPerspective = true;
 	bool bIsWireframe = false;
 	bool bGameView = false;
+	ELightingModel LightingModel = ELightingModel::Lambert; // 기본 모델
 
 	// 기존 뷰 컨텍스트 변환
 	FViewContext ToViewContext() const

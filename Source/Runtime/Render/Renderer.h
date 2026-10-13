@@ -8,6 +8,8 @@
 #include "Occlusion/GPUOcclusion.h"
 #include "Engine/LightSceneProxy.h"
 
+struct FSceneRenderData;
+
 // 오클루전 컬링의 효과 상한을 재기 위한 측정 결과 (디버그 전용)
 struct FOcclusionMeasureResult
 {
@@ -28,6 +30,8 @@ class FRenderer
 {
 public:
 	bool Init();
+
+	void UpdateForwardLighting(const FSceneView& View, const FSceneRenderData& RenderData);
 	void DrawDeferredLighting(const FSceneView& View, const struct FDeferredViewTargets& Targets,
 		const TArray<FPointLightRenderData>& PointLights);
 	void DrawToneMap(const struct FDeferredViewTargets& Targets);
@@ -68,6 +72,7 @@ private:
 	uint32 PerObjectSlotCapacity = 0;
 	bool bUsePerObjectSlots = false;
 	bool bCurrentWireframe = false;
+	ELightingModel CurrentLightingModel = ELightingModel::Lambert;
 
 	// 측정 전용 자원
 	TArray<ComPtr<ID3D11Query>> OcclusionQueries;

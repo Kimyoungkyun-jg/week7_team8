@@ -17,4 +17,5 @@ enum class ELightingModel : uint8
 	Gouraud,
 	Lambert,
 	BlinnPhong,
+	Unlit,
 };
