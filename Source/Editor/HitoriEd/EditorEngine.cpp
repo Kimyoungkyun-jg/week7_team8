@@ -223,7 +223,7 @@ bool UEditorEngine::Init() {
 	EditorControlsPanel->SetViewportsPanel(ViewportsPanel);
 
 	SettingsPanel->SetWorld(EditorWorld);
-	SettingsPanel->SetLighting(GetEngineLoop().GetLighting());
+	SettingsPanel->SetSceneLightResources(GetEngineLoop().GetSceneLightResources());
 	SettingsPanel->SetViewportsPanel(ViewportsPanel);
 	ViewportsPanel->SetLayoutMode(ViewportLayoutMode, SingleViewportIndex);
 
@@ -641,7 +641,7 @@ void UEditorEngine::RenderViewports() {
 					SceneView = GameClient->CalcSceneView(ViewRect);
 
 					FSceneRenderer SceneRenderer(CurrentWorld, SceneView, GameClient->GetRenderData());
-					SceneRenderer.InitViews(Renderer, GetEngineLoop().GetLighting(), AmbientLight, RenderSettings.bUseSkyLight);
+					SceneRenderer.InitViews(Renderer, GetEngineLoop().GetSceneLightResources(), AmbientLight, RenderSettings.bUseSkyLight);
 
 
 					RenderGameFrame(GameClient, SceneView, SceneRenderer, bIsSIEMode);
@@ -655,7 +655,7 @@ void UEditorEngine::RenderViewports() {
 			SceneView = ViewClient->CalcSceneView(ViewRect);
 
 			FSceneRenderer SceneRenderer(CurrentWorld, SceneView, ViewClient->GetRenderData());
-			SceneRenderer.InitViews(Renderer, GetEngineLoop().GetLighting(), AmbientLight, RenderSettings.bUseSkyLight);
+			SceneRenderer.InitViews(Renderer, GetEngineLoop().GetSceneLightResources(), AmbientLight, RenderSettings.bUseSkyLight);
 
 			RenderFrame(ViewClient, SceneView, SceneRenderer, CurrentWorld, bIsGameView);
 		}
@@ -688,7 +688,7 @@ void UEditorEngine::RenderViewports() {
 					FRect ViewRect{0.0f, 0.0f, static_cast<float>(Width), static_cast<float>(Height)};
 					FSceneView SceneView = GameClient->CalcSceneView(ViewRect);
 					FSceneRenderer SceneRenderer(Context.World(), SceneView, GameClient->GetRenderData());
-					SceneRenderer.InitViews(Renderer, GetEngineLoop().GetLighting(), AmbientLight, RenderSettings.bUseSkyLight);
+					SceneRenderer.InitViews(Renderer, GetEngineLoop().GetSceneLightResources(), AmbientLight, RenderSettings.bUseSkyLight);
 					RenderGameFrame(GameClient, SceneView, SceneRenderer);
 				}
 			}

@@ -13,7 +13,7 @@
 #include "Render/RenderDevice.h"
 #include "Render/RenderResourceManager.h"
 #include "Render/Renderer.h"
-#include "Render/LightingRenderer.h"
+#include "Render/SceneLightResources.h"
 #include "Render/Swapchain.h"
 #include "Render/Texture2D.h"
 #include "Core/SplashScreen.h"
@@ -71,8 +71,8 @@ bool FEngineLoop::PreInit(HINSTANCE hInstance, UClass* EngineClass)
 	RenderCommand::Init(RenderDevice.get());
 
 	Renderer = MakeUnique<FRenderer>();
-	Lighting = MakeUnique<FLightingRenderer>();
-	if (!Renderer->Init() || !Lighting->Init()) return false;
+	SceneLightResources = MakeUnique<FSceneLightResources>();
+	if (!Renderer->Init() || !SceneLightResources->Init()) return false;
 
 	MainWindow = MakeUnique<FWindow>();
 	if (!MainWindow->Create(hInstance, Width, Height, Config.Title, Config.bBorderless))

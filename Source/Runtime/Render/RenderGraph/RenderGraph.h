@@ -50,6 +50,13 @@ struct FRenderGraphRasterPassDesc
 	uint32 Height = 0;
 };
 
+struct FRenderGraphComputePassDesc
+{
+	std::string Name;
+	std::vector<ID3D11Resource*> ReadResources;
+	std::vector<ID3D11Resource*> WriteResources;
+};
+
 struct FRenderGraphTextureDesc
 {
 	uint32 Width = 0;
@@ -73,6 +80,7 @@ public:
 	FTexture2D* Resolve(FRenderGraphTextureRef Ref) const;
 
 	bool AddRasterPass(FRenderGraphRasterPassDesc Desc, std::function<void()> Execute);
+	bool AddComputePass(FRenderGraphComputePassDesc Desc, std::function<void()> Execute);
 	bool Execute();
 
 private:
@@ -86,9 +94,11 @@ private:
 	struct FRasterPass
 	{
 		FRenderGraphRasterPassDesc Desc;
+		FRenderGraphComputePassDesc ComputeDesc;
 		std::function<void()> Execute;
 		uint32 Width = 0;
 		uint32 Height = 0;
+		bool bCompute = false;
 	};
 
 	bool ValidatePass(const FRenderGraphRasterPassDesc& Desc, uint32& OutWidth, uint32& OutHeight) const;

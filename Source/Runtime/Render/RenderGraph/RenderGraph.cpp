@@ -216,7 +216,31 @@ bool FRenderGraphBuilder::AddRasterPass(FRenderGraphRasterPassDesc Desc, std::fu
 	if (bExecuted || !Execute) return false;
 	uint32 Width = 0, Height = 0;
 	if (!ValidatePass(Desc, Width, Height)) return false;
-	Passes.push_back({ std::move(Desc), std::move(Execute), Width, Height });
+	FRasterPass Pass{};
+	Pass.Desc = std::move(Desc);
+	Pass.Execute = std::move(Execute);
+	Pass.Width = Width;
+	Pass.Height = Height;
+	Passes.push_back(std::move(Pass));
+	return true;
+}
+
+bool FRenderGraphBuilder::AddComputePass(FRenderGraphComputePassDesc Desc, std::function<void()> Execute)
+{
+	if (bExecuted || !Execute || Desc.Name.empty() || Desc.WriteResources.empty()) return false;
+	for (ID3D11Resource* Resource : Desc.ReadResources)
+		if (!Resource) return false;
+	for (ID3D11Resource* Resource : Desc.WriteResources)
+	{
+		if (!Resource || std::find(Desc.ReadResources.begin(), Desc.ReadResources.end(), Resource)
+			!= Desc.ReadResources.end()) return false;
+		if (std::count(Desc.WriteResources.begin(), Desc.WriteResources.end(), Resource) != 1) return false;
+	}
+	FRasterPass Pass{};
+	Pass.ComputeDesc = std::move(Desc);
+	Pass.Execute = std::move(Execute);
+	Pass.bCompute = true;
+	Passes.push_back(std::move(Pass));
 	return true;
 }
 
@@ -236,6 +260,16 @@ bool FRenderGraphBuilder::Execute()
 	ID3D11DeviceContext* Context = RenderCommand::GetContext();
 	for (FRasterPass& Pass : Passes)
 	{
+		if (Pass.bCompute)
+		{
+			RenderCommand::EndRenderPass();
+			UnbindConflictingViews(Context, Pass.ComputeDesc.ReadResources);
+			UnbindConflictingViews(Context, Pass.ComputeDesc.WriteResources);
+			Pass.Execute();
+			ID3D11UnorderedAccessView* NullUAVs[D3D11_PS_CS_UAV_REGISTER_COUNT]{};
+			Context->CSSetUnorderedAccessViews(0, D3D11_PS_CS_UAV_REGISTER_COUNT, NullUAVs, nullptr);
+			continue;
+		}
 		// 이전 패스의 출력 바인딩을 먼저 해제해야 입력 SRV로 사용할 수 있다.
 		RenderCommand::EndRenderPass();
 		std::vector<ID3D11Resource*> Outputs;

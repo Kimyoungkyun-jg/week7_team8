@@ -32,6 +32,70 @@ void FRenderer::BindPixelConstant(uint32 Slot, FConstantBuffer* Buffer)
 	RenderCommand::BindConstantBuffer(Slot, Buffer, EShaderBindFlagBits::Pixel);
 }
 
+void FRenderer::UpdateConstant(FConstantBuffer* Buffer, const void* Data, uint32 Size)
+{
+	RenderCommand::UpdateBufferData(Buffer, Data, Size);
+}
+
+void FRenderer::BindConstant(uint32 Slot, FConstantBuffer* Buffer, EShaderBindFlagBits Stages)
+{
+	RenderCommand::BindConstantBuffer(Slot, Buffer, Stages);
+}
+
+void FRenderer::BindStructured(uint32 Slot, FStructuredBuffer* Buffer, EShaderBindFlagBits Stages)
+{
+	RenderCommand::BindShaderResource(Slot, Buffer, Stages);
+}
+
+void FRenderer::BindCube(uint32 Slot, const FTextureCube* Texture, EShaderBindFlagBits Stages)
+{
+	RenderCommand::BindShaderResource(Slot, Texture, Stages);
+}
+
+void FRenderer::BindSampler(uint32 Slot, ESamplerState Sampler, EShaderBindFlagBits Stages)
+{
+	RenderCommand::BindSamplerState(Slot, Sampler, Stages);
+}
+
+void FRenderer::UnbindResources(uint32 FirstSlot, uint32 Count, EShaderBindFlagBits Stages)
+{
+	RenderCommand::UnbindShaderResources(FirstSlot, Count, Stages);
+}
+
+void FRenderer::BindRawPixelConstant(uint32 Slot, ID3D11Buffer* Buffer)
+{
+	RenderCommand::GetContext()->PSSetConstantBuffers(Slot, 1, &Buffer);
+}
+
+void FRenderer::BindRawPixelResources(uint32 FirstSlot,
+	std::span<ID3D11ShaderResourceView* const> Resources)
+{
+	RenderCommand::GetContext()->PSSetShaderResources(FirstSlot,
+		static_cast<UINT>(Resources.size()), Resources.data());
+}
+
+void FRenderer::DispatchCompute(ID3D11ComputeShader* Shader, ID3D11Buffer* Constants,
+	uint32 SRVSlot, ID3D11ShaderResourceView* SRV,
+	std::span<ID3D11UnorderedAccessView* const> UAVs,
+	uint32 GroupsX, uint32 GroupsY, uint32 GroupsZ, ID3D11SamplerState* Sampler)
+{
+	if (!Shader || !GroupsX || !GroupsY || !GroupsZ || UAVs.empty()) return;
+	ID3D11DeviceContext* Context = RenderCommand::GetContext();
+	Context->CSSetShader(Shader, nullptr, 0);
+	Context->CSSetConstantBuffers(0, 1, &Constants);
+	Context->CSSetShaderResources(SRVSlot, 1, &SRV);
+	Context->CSSetUnorderedAccessViews(0, static_cast<UINT>(UAVs.size()), UAVs.data(), nullptr);
+	if (Sampler) Context->CSSetSamplers(0, 1, &Sampler);
+	Context->Dispatch(GroupsX, GroupsY, GroupsZ);
+	ID3D11ShaderResourceView* NullSRV = nullptr;
+	ID3D11Buffer* NullCB = nullptr;
+	ID3D11SamplerState* NullSampler = nullptr;
+	Context->CSSetShaderResources(SRVSlot, 1, &NullSRV);
+	Context->CSSetConstantBuffers(0, 1, &NullCB);
+	Context->CSSetSamplers(0, 1, &NullSampler);
+	Context->CSSetShader(nullptr, nullptr, 0);
+}
+
 void FRenderer::BindBatch(const FMeshDrawBatch& Batch)
 {
 	RenderCommand::BindPipelineState(Batch.Pipeline);

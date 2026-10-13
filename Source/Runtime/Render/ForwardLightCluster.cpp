@@ -4,6 +4,7 @@
 #include "Buffer.h"
 #include "LightRenderData.h"
 #include "RenderCommand.h"
+#include "Renderer.h"
 #include "SceneView.h"
 
 #include <cstring>
@@ -111,7 +112,7 @@ bool FForwardLightClusterGrid::Init()
 	return true;
 }
 
-bool FForwardLightClusterGrid::Build(const FSceneView& View,
+bool FForwardLightClusterGrid::PrepareBuild(const FSceneView& View,
 	const FForwardLightingConstants& Lighting, const FStructuredBuffer* SceneLights)
 {
 	if (!ComputeShader || !ConstantsCB || !SceneLights || !SceneLights->GetSRV())
@@ -148,24 +149,18 @@ bool FForwardLightClusterGrid::Build(const FSceneView& View,
 
 	const FForwardClusterConstants Constants = MakeClusterConstants(View, Lighting, true);
 
-	ID3D11DeviceContext* Context = RenderCommand::GetContext();
-	Context->UpdateSubresource(ConstantsCB.Get(), 0, nullptr, &Constants, 0, 0);
-	ID3D11ShaderResourceView* LightSRV = SceneLights->GetSRV();
-	ID3D11UnorderedAccessView* UAVs[] = { CountsUAV.Get(), IndicesUAV.Get() };
-	Context->CSSetShader(ComputeShader.Get(), nullptr, 0);
-	Context->CSSetConstantBuffers(0, 1, ConstantsCB.GetAddressOf());
-	Context->CSSetShaderResources(0, 1, &LightSRV);
-	Context->CSSetUnorderedAccessViews(0, 2, UAVs, nullptr);
-	Context->Dispatch(TilesX, TilesY, ClusterDepthSlices);
-
-	ID3D11ShaderResourceView* NullSRV = nullptr;
-	ID3D11UnorderedAccessView* NullUAVs[2]{};
-	ID3D11Buffer* NullCB = nullptr;
-	Context->CSSetShaderResources(0, 1, &NullSRV);
-	Context->CSSetUnorderedAccessViews(0, 2, NullUAVs, nullptr);
-	Context->CSSetConstantBuffers(0, 1, &NullCB);
-	Context->CSSetShader(nullptr, nullptr, 0);
+	RenderCommand::GetContext()->UpdateSubresource(ConstantsCB.Get(), 0, nullptr, &Constants, 0, 0);
+	DispatchX = TilesX;
+	DispatchY = TilesY;
 	return true;
+}
+
+void FForwardLightClusterGrid::ExecuteBuild(FRenderer* Renderer, const FStructuredBuffer* SceneLights)
+{
+	if (!Renderer || !SceneLights || !DispatchX || !DispatchY) return;
+	ID3D11UnorderedAccessView* UAVs[] = { CountsUAV.Get(), IndicesUAV.Get() };
+	Renderer->DispatchCompute(ComputeShader.Get(), ConstantsCB.Get(), 0, SceneLights->GetSRV(),
+		UAVs, DispatchX, DispatchY, ClusterDepthSlices);
 }
 
 void FForwardLightClusterGrid::PreparePixelShader(const FSceneView& View,
@@ -177,26 +172,4 @@ void FForwardLightClusterGrid::PreparePixelShader(const FSceneView& View,
 
 	const FForwardClusterConstants Constants = MakeClusterConstants(View, Lighting, false);
 	RenderCommand::GetContext()->UpdateSubresource(ConstantsCB.Get(), 0, nullptr, &Constants, 0, 0);
-}
-
-void FForwardLightClusterGrid::BindPixelShader() const
-{
-	ID3D11DeviceContext* Context = RenderCommand::GetContext();
-	ID3D11Buffer* CB = ConstantsCB.Get();
-	ID3D11ShaderResourceView* SRVs[2] = {
-		bPixelClustersValid ? CountsSRV.Get() : nullptr,
-		bPixelClustersValid ? IndicesSRV.Get() : nullptr
-	};
-	Context->PSSetConstantBuffers(3, 1, &CB);
-	Context->PSSetShaderResources(9, 2, SRVs);
-}
-
-void FForwardLightClusterGrid::UnbindPixelShader()
-{
-	ID3D11DeviceContext* Context = RenderCommand::GetContext();
-	ID3D11ShaderResourceView* NullSRVs[2]{};
-	ID3D11Buffer* NullCB = nullptr;
-	Context->PSSetShaderResources(9, 2, NullSRVs);
-	Context->PSSetConstantBuffers(3, 1, &NullCB);
-	bPixelClustersValid = false;
 }

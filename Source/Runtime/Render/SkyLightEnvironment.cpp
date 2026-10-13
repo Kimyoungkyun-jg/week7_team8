@@ -3,6 +3,7 @@
 #include "Render/ImageLoader.h"
 #include "Render/RenderCommand.h"
 #include "Render/Texture2D.h"
+#include "Render/Renderer.h"
 
 namespace
 {
@@ -46,7 +47,7 @@ namespace
 	}
 }
 
-bool FSkyLightEnvironment::Build(const FString& InSourcePath)
+bool FSkyLightEnvironment::Prepare(const FString& InSourcePath)
 {
 	FImageData Image = ImageLoader::LoadAuto(InSourcePath);
 	if (!Image.IsValid() || (Image.Format != DXGI_FORMAT_R8G8B8A8_UNORM &&
@@ -66,27 +67,26 @@ bool FSkyLightEnvironment::Build(const FString& InSourcePath)
 	PanoramaDesc.SampleDesc.Count = 1;
 	PanoramaDesc.Usage = D3D11_USAGE_IMMUTABLE;
 	PanoramaDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-	auto Panorama = RenderCommand::CreateTexture2D(PanoramaDesc, Image);
+	auto NewPanorama = RenderCommand::CreateTexture2D(PanoramaDesc, Image);
 	auto NewEnvironment = CreateCube(EnvironmentSize);
 	auto NewIrradiance = CreateCube(IrradianceSize);
-	if (!Panorama || !Panorama->GetSRV() || !NewEnvironment || !NewIrradiance)
+	if (!NewPanorama || !NewPanorama->GetSRV() || !NewEnvironment || !NewIrradiance)
 	{
 		HTR_LOG(Warning, "[SkyLight] GPU texture creation failed: {}", InSourcePath);
 		return false;
 	}
 
 	ID3D11Device* Device = RenderCommand::GetDevice();
-	ID3D11DeviceContext* Context = RenderCommand::GetContext();
-	ComPtr<ID3D11ComputeShader> EnvironmentCS, IrradianceCS;
-	if (!CompileCompute(Device, "BuildEnvironmentCube", EnvironmentCS) ||
-		!CompileCompute(Device, "BuildIrradianceCube", IrradianceCS)) return false;
+	ComPtr<ID3D11ComputeShader> NewEnvironmentCS, NewIrradianceCS;
+	if (!CompileCompute(Device, "BuildEnvironmentCube", NewEnvironmentCS) ||
+		!CompileCompute(Device, "BuildIrradianceCube", NewIrradianceCS)) return false;
 
 	D3D11_BUFFER_DESC CBDesc{};
 	CBDesc.ByteWidth = sizeof(FSkyConstants);
 	CBDesc.Usage = D3D11_USAGE_DEFAULT;
 	CBDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-	ComPtr<ID3D11Buffer> ConstantsCB;
-	if (FAILED(Device->CreateBuffer(&CBDesc, nullptr, ConstantsCB.GetAddressOf()))) return false;
+	ComPtr<ID3D11Buffer> NewConstantsCB;
+	if (FAILED(Device->CreateBuffer(&CBDesc, nullptr, NewConstantsCB.GetAddressOf()))) return false;
 
 	D3D11_SAMPLER_DESC SamplerDesc{};
 	SamplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
@@ -94,52 +94,52 @@ bool FSkyLightEnvironment::Build(const FString& InSourcePath)
 	SamplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
 	SamplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
 	SamplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
-	ComPtr<ID3D11SamplerState> Sampler;
-	if (FAILED(Device->CreateSamplerState(&SamplerDesc, Sampler.GetAddressOf()))) return false;
-
-	ID3D11Buffer* CB = ConstantsCB.Get();
-	ID3D11SamplerState* SamplerPtr = Sampler.Get();
-	Context->CSSetConstantBuffers(0, 1, &CB);
-	Context->CSSetSamplers(0, 1, &SamplerPtr);
-
-	// 파노라마를 환경 큐브맵 여섯 면에 직접 기록한다.
-	const FSkyConstants EnvConstants{ EnvironmentSize, Image.Height,
-		Image.Format == DXGI_FORMAT_R8G8B8A8_UNORM ? 0u : 1u, IntegrationSamples };
-	Context->UpdateSubresource(ConstantsCB.Get(), 0, nullptr, &EnvConstants, 0, 0);
-	ID3D11ShaderResourceView* PanoramaSRV = Panorama->GetSRV();
-	ID3D11UnorderedAccessView* EnvironmentUAV = NewEnvironment->GetUAV();
-	Context->CSSetShader(EnvironmentCS.Get(), nullptr, 0);
-	Context->CSSetShaderResources(0, 1, &PanoramaSRV);
-	Context->CSSetUnorderedAccessViews(0, 1, &EnvironmentUAV, nullptr);
-	Context->Dispatch(EnvironmentSize / 8, EnvironmentSize / 8, FTextureCube::FaceCount);
-
-	// 읽기 전 UAV 바인딩을 풀어 동일 리소스의 SRV/UAV 충돌을 막는다.
-	ID3D11ShaderResourceView* NullSRV = nullptr;
-	ID3D11UnorderedAccessView* NullUAV = nullptr;
-	Context->CSSetShaderResources(0, 1, &NullSRV);
-	Context->CSSetUnorderedAccessViews(0, 1, &NullUAV, nullptr);
-
-	const FSkyConstants IrrConstants{ IrradianceSize, Image.Height, 1u, IntegrationSamples };
-	Context->UpdateSubresource(ConstantsCB.Get(), 0, nullptr, &IrrConstants, 0, 0);
-	ID3D11ShaderResourceView* EnvironmentSRV = NewEnvironment->GetSRV();
-	ID3D11UnorderedAccessView* IrradianceUAV = NewIrradiance->GetUAV();
-	Context->CSSetShader(IrradianceCS.Get(), nullptr, 0);
-	Context->CSSetShaderResources(1, 1, &EnvironmentSRV);
-	Context->CSSetUnorderedAccessViews(0, 1, &IrradianceUAV, nullptr);
-	Context->Dispatch(IrradianceSize / 8, IrradianceSize / 8, FTextureCube::FaceCount);
-
-	Context->CSSetShaderResources(1, 1, &NullSRV);
-	Context->CSSetUnorderedAccessViews(0, 1, &NullUAV, nullptr);
-	ID3D11Buffer* NullCB = nullptr;
-	ID3D11SamplerState* NullSampler = nullptr;
-	Context->CSSetConstantBuffers(0, 1, &NullCB);
-	Context->CSSetSamplers(0, 1, &NullSampler);
-	Context->CSSetShader(nullptr, nullptr, 0);
-
+	ComPtr<ID3D11SamplerState> NewSampler;
+	if (FAILED(Device->CreateSamplerState(&SamplerDesc, NewSampler.GetAddressOf()))) return false;
+	Panorama = std::move(NewPanorama);
 	EnvironmentCube = std::move(NewEnvironment);
 	IrradianceCube = std::move(NewIrradiance);
+	EnvironmentCS = std::move(NewEnvironmentCS);
+	IrradianceCS = std::move(NewIrradianceCS);
+	ConstantsCB = std::move(NewConstantsCB);
+	Sampler = std::move(NewSampler);
+	PanoramaHeight = Image.Height;
+	bSourceIsLinear = Image.Format != DXGI_FORMAT_R8G8B8A8_UNORM;
 	SourcePath = InSourcePath;
-	HTR_LOG(Info, "[SkyLight] GPU environment {}x{}, irradiance {}x{}: {}",
-		EnvironmentSize, EnvironmentSize, IrradianceSize, IrradianceSize, SourcePath);
 	return true;
 }
+
+void FSkyLightEnvironment::DispatchEnvironment(FRenderer* Renderer)
+{
+	const FSkyConstants Constants{ EnvironmentSize, PanoramaHeight, bSourceIsLinear ? 1u : 0u,
+		IntegrationSamples };
+	RenderCommand::GetContext()->UpdateSubresource(ConstantsCB.Get(), 0, nullptr, &Constants, 0, 0);
+	ID3D11UnorderedAccessView* UAVs[] = { EnvironmentCube->GetUAV() };
+	Renderer->DispatchCompute(EnvironmentCS.Get(), ConstantsCB.Get(), 0, Panorama->GetSRV(),
+		UAVs, EnvironmentSize / 8, EnvironmentSize / 8, FTextureCube::FaceCount, Sampler.Get());
+}
+
+void FSkyLightEnvironment::DispatchIrradiance(FRenderer* Renderer)
+{
+	const FSkyConstants Constants{ IrradianceSize, PanoramaHeight, 1u, IntegrationSamples };
+	RenderCommand::GetContext()->UpdateSubresource(ConstantsCB.Get(), 0, nullptr, &Constants, 0, 0);
+	ID3D11UnorderedAccessView* UAVs[] = { IrradianceCube->GetUAV() };
+	Renderer->DispatchCompute(IrradianceCS.Get(), ConstantsCB.Get(), 1, EnvironmentCube->GetSRV(),
+		UAVs, IrradianceSize / 8, IrradianceSize / 8, FTextureCube::FaceCount, Sampler.Get());
+}
+
+void FSkyLightEnvironment::Complete()
+{
+	bReady = true;
+	Panorama.reset();
+	EnvironmentCS.Reset();
+	IrradianceCS.Reset();
+	ConstantsCB.Reset();
+	Sampler.Reset();
+	HTR_LOG(Info, "[SkyLight] GPU environment {}x{}, irradiance {}x{}: {}",
+		EnvironmentSize, EnvironmentSize, IrradianceSize, IrradianceSize, SourcePath);
+}
+
+ID3D11Resource* FSkyLightEnvironment::GetPanoramaResource() const { return Panorama ? Panorama->GetRawPtr() : nullptr; }
+ID3D11Resource* FSkyLightEnvironment::GetEnvironmentResource() const { return EnvironmentCube ? EnvironmentCube->GetRawPtr() : nullptr; }
+ID3D11Resource* FSkyLightEnvironment::GetIrradianceResource() const { return IrradianceCube ? IrradianceCube->GetRawPtr() : nullptr; }

@@ -7,7 +7,7 @@
 #include "Render/RenderEnums.h"
 
 class UWorld;
-class FLightingRenderer;
+class FSceneLightResources;
 
 struct FEditorSettings
 {
@@ -65,7 +65,7 @@ public:
 	const char* GetPanelName() const override { return "Settings"; }
 
 	void SetWorld(UWorld* InWorld) { World = InWorld; }
-	void SetLighting(FLightingRenderer* InLighting) { Lighting = InLighting; }
+	void SetSceneLightResources(FSceneLightResources* InResources) { SceneLightResources = InResources; }
 	void SetViewportsPanel(FViewportsPanel* InPanel) { ViewportsPanel = InPanel; }
 
 	const FEditorSettings& GetSettings() const { return Settings; }
@@ -88,7 +88,7 @@ private:
 	void ApplySceneDepthRange();
 	void DrawDefaultPawnSettings();
 	UWorld* World = nullptr;
-	FLightingRenderer* Lighting = nullptr;
+	FSceneLightResources* SceneLightResources = nullptr;
 	FViewportsPanel* ViewportsPanel = nullptr;
 	FEditorSettings Settings;
 };

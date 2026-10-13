@@ -8,7 +8,7 @@ class UClass;
 class FWindow;
 class FRenderDevice;
 class FRenderer;
-class FLightingRenderer;
+class FSceneLightResources;
 class FSwapchain;
 class FTexture2D;
 
@@ -41,7 +41,7 @@ public:
 
 	FRenderDevice* GetRenderDevice() const { return RenderDevice.get(); }
 	FRenderer* GetRenderer() const { return Renderer.get(); }
-	FLightingRenderer* GetLighting() const { return Lighting.get(); }
+	FSceneLightResources* GetSceneLightResources() const { return SceneLightResources.get(); }
 	FWindow* GetMainWindow() const { return MainWindow.get(); }
 	FSwapchain* GetSwapchain() const { return Swapchain.get(); }
 	// 백버퍼 패스의 깊이 버퍼. 기즈모처럼 장면 위에 항상 보여야 하는 것을 그리기 전에 지울 때 쓴다.
@@ -61,7 +61,7 @@ private:
 	// 선언 역순으로 해제되므로 의존 대상(Device)을 가장 위에 둔다.
 	TUniquePtr<FRenderDevice> RenderDevice;
 	TUniquePtr<FRenderer> Renderer;
-	TUniquePtr<FLightingRenderer> Lighting;
+	TUniquePtr<FSceneLightResources> SceneLightResources;
 	TUniquePtr<FWindow> MainWindow;
 	TUniquePtr<FSwapchain> Swapchain;
 	TUniquePtr<FTexture2D> DepthBuffer = nullptr;

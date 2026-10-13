@@ -10,7 +10,7 @@
 class UWorld;
 class FScene;
 class FRenderer;
-class FLightingRenderer;
+class FSceneLightResources;
 class FConstantBuffer;
 class FTexture2D;
 class FSkyboxRenderer;
@@ -52,7 +52,7 @@ public:
 	FSceneRenderer& operator=(const FSceneRenderer&) = delete;
 
 	// 가시성 검사 및 렌더 큐 수집
-	void InitViews(FRenderer* Renderer, FLightingRenderer* Lighting,
+	void InitViews(FRenderer* Renderer, FSceneLightResources* Resources,
 		const FAmbientLightRenderData& AmbientLight, bool bUseSkyLight = true);
 
 	// 뷰 결과를 하나 유지하는 벤치마크에서도 사용한다.
@@ -80,12 +80,19 @@ public:
 private:
 	bool AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Renderer, FSceneViewTargets& Targets,
 		const FSceneRenderOptions& Options, FSkyboxRenderer* Skybox);
+	bool BindDeferredLighting(FRenderer* Renderer, uint32 Width, uint32 Height, bool bAdditive);
+	bool BindForwardLighting(FRenderer* Renderer, const FSceneRenderOptions& Options);
+	void UnbindForwardLighting(FRenderer* Renderer);
 	bool IntersectSphereFrustum(const FVector4& PositionRadius, const FPlane (&Planes)[6]) const;
 
 	UWorld* World = nullptr;
 	FSceneView View;
 	FSceneRenderData& RenderData;
-	FLightingRenderer* Lighting = nullptr;
+	FSceneLightResources* LightResources = nullptr;
+	uint32 LightCounts[4]{};
+	uint32 LightOffsets[4]{};
+	bool bLightUploadSucceeded = false;
+	bool bClustersBuilt = false;
 	FViewContext CachedViewContext;
 	FRenderGraphTextureRef NormalRoughnessRef;
 	bool bCorePassSucceeded = true;

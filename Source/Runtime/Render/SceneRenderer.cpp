@@ -1,8 +1,7 @@
 #include "EnginePCH.h"
 #include "Render/SceneRenderer.h"
 #include "Render/Renderer.h"
-#include "Render/LightingRenderer.h"
-#include "Render/RenderCommand.h"
+#include "Render/SceneLightResources.h"
 #include "Render/RenderGraph/RenderGraph.h"
 #include "Render/SceneViewTargets.h"
 #include "Render/SkyboxRenderer.h"
@@ -46,11 +45,12 @@ bool FSceneRenderer::IntersectSphereFrustum(const FVector4& PositionRadius, cons
 }
 
 // 가시성 검사 및 렌더 큐 수집
-void FSceneRenderer::InitViews(FRenderer* Renderer, FLightingRenderer* InLighting,
+void FSceneRenderer::InitViews(FRenderer* Renderer, FSceneLightResources* InResources,
 	const FAmbientLightRenderData& AmbientLight,
 	bool bUseSkyLight)
 {
-	Lighting = InLighting;
+	LightResources = InResources;
+	bLightUploadSucceeded = false;
 	if (!World)
 	{
 		RenderData.ResetFrame();
@@ -60,13 +60,13 @@ void FSceneRenderer::InitViews(FRenderer* Renderer, FLightingRenderer* InLightin
 	// 월드 프리미티브 수집 및 절두체 컬링
 	GatherRenderPackets(World->GetScene(), RenderData, CachedViewContext, &View.Frustum, Renderer);
 	RenderData.AmbientLight = AmbientLight;
-	if (Lighting && bUseSkyLight)
+	if (LightResources && bUseSkyLight)
 	{
 		if (const FSkyLightSceneProxy* SkyLight = World->GetScene().GetActiveSkyLight(View.bGameView))
 		{
 			RenderData.SkyLight = SkyLight->GetRenderData();
 			RenderData.bHasSkyLight = true;
-			Lighting->PrepareSkyLight(RenderData.SkyLight);
+			LightResources->PrepareSkyLight(RenderData.SkyLight);
 		}
 	}
 
@@ -95,12 +95,85 @@ void FSceneRenderer::InitViews(FRenderer* Renderer, FLightingRenderer* InLightin
 		//if (!IntersectSphereFrustum(Data.PositionRadius, View.Frustum.Planes)) continue;
 		RenderData.VisibleSpotLights.Add(Data);
 	}
+	if (LightResources)
+		bLightUploadSucceeded = LightResources->UploadViewLights(
+			RenderData.VisibleDirectionalLights, RenderData.VisiblePointLights,
+			RenderData.VisibleSpotLights, LightCounts, LightOffsets);
+}
+
+bool FSceneRenderer::BindDeferredLighting(FRenderer* Renderer, uint32 Width, uint32 Height, bool bAdditive)
+{
+	if (!LightResources || !bLightUploadSucceeded || !LightResources->GetDeferredConstants()) return false;
+	FDeferredLightConstants Constants{};
+	Constants.InverseViewProjection = View.ViewProjectionMatrix.Inverse();
+	Constants.CameraPosition = FVector4(View.ViewLocation.X, View.ViewLocation.Y,
+		View.ViewLocation.Z, View.bIsPerspective ? 1.0f : 0.0f);
+	Constants.CameraForward = FVector4(View.ViewForward.X, View.ViewForward.Y, View.ViewForward.Z, 0.0f);
+	const FSkyLightEnvironment* Sky = RenderData.bHasSkyLight
+		? LightResources->FindSkyLightEnvironment(RenderData.SkyLight.SourcePath) : nullptr;
+	Constants.Ambient = Sky ? FAmbientLightRenderData{ FVector4(0.0f) } : RenderData.AmbientLight;
+	if (Sky) Constants.SkyColorIntensity = RenderData.SkyLight.ColorIntensity;
+	std::memcpy(Constants.LightCounts, LightCounts, sizeof(LightCounts));
+	std::memcpy(Constants.LightOffsets, LightOffsets, sizeof(LightOffsets));
+	Constants.ViewportPass = FVector4(static_cast<float>(Width), static_cast<float>(Height),
+		0.0f, bAdditive ? 1.0f : 0.0f);
+	Renderer->UpdateConstant(LightResources->GetDeferredConstants(), &Constants, sizeof(Constants));
+	Renderer->BindConstant(0, LightResources->GetDeferredConstants(), EShaderBindFlagBits::Pixel);
+	Renderer->BindStructured(3, LightCounts[0] || LightCounts[1] || LightCounts[2]
+		? LightResources->GetSceneLights() : nullptr, EShaderBindFlagBits::Pixel);
+	Renderer->BindCube(4, Sky ? Sky->GetIrradianceCube() : nullptr, EShaderBindFlagBits::Pixel);
+	Renderer->BindSampler(1, ESamplerState::LinearClamp, EShaderBindFlagBits::Pixel);
+	return true;
+}
+
+bool FSceneRenderer::BindForwardLighting(FRenderer* Renderer, const FSceneRenderOptions& Options)
+{
+	if (!LightResources || !bLightUploadSucceeded || !LightResources->GetForwardConstants()) return false;
+	FPipelineState* BasePSO = FRenderResourceManager::GetPSO(EPSOType::StaticMesh_Forward);
+	FShaderProgram* Program = FRenderResourceManager::GetForwardShaderProgram(Options.LightingModel);
+	if (!BasePSO || !Program) return false;
+	FForwardLightingConstants Constants{};
+	const FSkyLightEnvironment* Sky = RenderData.bHasSkyLight
+		? LightResources->FindSkyLightEnvironment(RenderData.SkyLight.SourcePath) : nullptr;
+	Constants.Ambient = Sky ? FAmbientLightRenderData{ FVector4(0.0f) } : RenderData.AmbientLight;
+	if (Sky) Constants.SkyColorIntensity = RenderData.SkyLight.ColorIntensity;
+	Constants.CameraPosition = FVector4(View.ViewLocation.X, View.ViewLocation.Y, View.ViewLocation.Z, 1.0f);
+	std::memcpy(Constants.LightCounts, LightCounts, sizeof(LightCounts));
+	std::memcpy(Constants.LightOffsets, LightOffsets, sizeof(LightOffsets));
+	Renderer->UpdateConstant(LightResources->GetForwardConstants(), &Constants, sizeof(Constants));
+	Renderer->BindConstant(1, LightResources->GetForwardConstants(),
+		EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
+	Renderer->BindCube(11, Sky ? Sky->GetIrradianceCube() : nullptr,
+		EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
+	Renderer->BindSampler(1, ESamplerState::LinearClamp,
+		EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
+	FForwardLightClusterGrid& Clusters = LightResources->GetClusters();
+	Clusters.PreparePixelShader(View, Constants, bClustersBuilt);
+	Renderer->BindRawPixelConstant(3, Clusters.GetPixelConstants());
+	const std::array<ID3D11ShaderResourceView*, 2> ClusterSRVs =
+		{ Clusters.GetCountsSRV(), Clusters.GetIndicesSRV() };
+	Renderer->BindRawPixelResources(9, ClusterSRVs);
+	Renderer->BindStructured(8, (LightCounts[0] || LightCounts[1] || LightCounts[2]) &&
+		LightResources->GetSceneLights() && LightResources->GetSceneLights()->GetSRV()
+		? LightResources->GetSceneLights() : nullptr,
+		EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
+	return true;
+}
+
+void FSceneRenderer::UnbindForwardLighting(FRenderer* Renderer)
+{
+	const std::array<ID3D11ShaderResourceView*, 2> NullSRVs{};
+	Renderer->BindRawPixelResources(9, NullSRVs);
+	Renderer->BindRawPixelConstant(3, nullptr);
+	LightResources->GetClusters().ResetPixelState();
+	Renderer->UnbindResources(8, 1, EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
+	Renderer->UnbindResources(11, 1, EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
 }
 
 bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Renderer, FSceneViewTargets& Targets,
 	const FSceneRenderOptions& Options, FSkyboxRenderer* Skybox)
 {
-	if (!World || !Renderer || !Lighting || !Targets.SceneColor || !Targets.Depth)
+	if (!World || !Renderer || !LightResources || !Targets.SceneColor || !Targets.Depth)
 		return false;
 	const uint32 Width = Targets.SceneColor->GetWidth();
 	const uint32 Height = Targets.SceneColor->GetHeight();
@@ -108,7 +181,31 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 		return false;
 
 	bCorePassSucceeded = true;
+	bClustersBuilt = false;
 	NormalRoughnessRef = {};
+	if (RenderData.bHasSkyLight)
+	{
+		if (FSkyLightEnvironment* Pending = LightResources->FindPendingSkyLightEnvironment(RenderData.SkyLight.SourcePath))
+		{
+			FRenderGraphComputePassDesc Environment{};
+			Environment.Name = "BuildSkyEnvironment";
+			Environment.ReadResources = { Pending->GetPanoramaResource() };
+			Environment.WriteResources = { Pending->GetEnvironmentResource() };
+			if (!Graph.AddComputePass(std::move(Environment), [Pending, Renderer]
+				{
+					Pending->DispatchEnvironment(Renderer);
+				})) return false;
+			FRenderGraphComputePassDesc Irradiance{};
+			Irradiance.Name = "BuildSkyIrradiance";
+			Irradiance.ReadResources = { Pending->GetEnvironmentResource() };
+			Irradiance.WriteResources = { Pending->GetIrradianceResource() };
+			if (!Graph.AddComputePass(std::move(Irradiance), [Pending, Renderer]
+				{
+					Pending->DispatchIrradiance(Renderer);
+					Pending->Complete();
+				})) return false;
+		}
+	}
 
 	const auto SceneColor = Graph.ImportTexture(Targets.SceneColor.get(), "SceneColor");
 	const auto Depth = Graph.ImportTexture(Targets.Depth.get(), "SceneDepth");
@@ -161,11 +258,7 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 			if (!Graph.AddRasterPass(std::move(LightingPass), [this, Renderer, &Graph, BaseColor, Normal, Depth, Width, Height]
 				{
 					if (!bCorePassSucceeded) return;
-					if (!Lighting->BeginDeferredLighting(View, Width, Height,
-						RenderData.AmbientLight,
-						RenderData.VisibleDirectionalLights, RenderData.VisiblePointLights,
-						RenderData.VisibleSpotLights,
-						RenderData.bHasSkyLight ? &RenderData.SkyLight : nullptr))
+					if (!BindDeferredLighting(Renderer, Width, Height, false))
 					{
 						bCorePassSucceeded = false;
 						return;
@@ -177,17 +270,32 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 						Renderer->DrawFullscreen(*Pipeline, Textures);
 					else
 						bCorePassSucceeded = false;
-					if (!RenderData.VisiblePointLights.IsEmpty() || !RenderData.VisibleSpotLights.IsEmpty())
+					Renderer->UnbindResources(3, 2, EShaderBindFlagBits::Pixel);
+				})) return false;
+			if (!RenderData.VisiblePointLights.IsEmpty() || !RenderData.VisibleSpotLights.IsEmpty())
+			{
+				FRenderGraphRasterPassDesc Additive{};
+				Additive.Name = "DeferredLocalLights";
+				Additive.ReadTextures = { BaseColor, Normal, Depth };
+				Additive.ColorAttachments = { { LightingHDR, ERenderGraphLoadAction::Load } };
+				if (!Graph.AddRasterPass(std::move(Additive), [this, Renderer, &Graph, BaseColor, Normal, Depth, Width, Height]
 					{
+						if (!bCorePassSucceeded) return;
+						if (!BindDeferredLighting(Renderer, Width, Height, true))
+						{
+							bCorePassSucceeded = false;
+							return;
+						}
 						if (FPipelineState* Pipeline = FRenderResourceManager::GetPSO(EPSOType::DeferredPointLighting);
 							Pipeline && Pipeline->Shader && Pipeline->Shader->VertexShader && Pipeline->Shader->PixelShader)
 						{
-							Lighting->PrepareAdditiveDeferredLighting();
+							const std::array<FTexture2D*, 3> Textures =
+								{ Graph.Resolve(BaseColor), Graph.Resolve(Normal), Graph.Resolve(Depth) };
 							Renderer->DrawFullscreen(*Pipeline, Textures);
 						}
-					}
-					Lighting->EndDeferredLighting();
-				})) return false;
+						Renderer->UnbindResources(3, 2, EShaderBindFlagBits::Pixel);
+					})) return false;
+			}
 		}
 		else
 		{
@@ -199,6 +307,30 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 	}
 	else
 	{
+		if (Options.bDrawPrimitives && bLightUploadSucceeded &&
+			Options.bEnableClusteredLightCulling && Options.LightingModel != ELightingModel::Gouraud &&
+			(LightCounts[0] || LightCounts[1]))
+		{
+			FForwardLightingConstants ClusterLighting{};
+			ClusterLighting.CameraPosition = FVector4(View.ViewLocation.X, View.ViewLocation.Y,
+				View.ViewLocation.Z, 1.0f);
+			std::memcpy(ClusterLighting.LightCounts, LightCounts, sizeof(LightCounts));
+			std::memcpy(ClusterLighting.LightOffsets, LightOffsets, sizeof(LightOffsets));
+			FForwardLightClusterGrid& Grid = LightResources->GetClusters();
+			FStructuredBuffer* SceneLights = LightResources->GetSceneLights();
+			if (Grid.PrepareBuild(View, ClusterLighting, SceneLights))
+			{
+				FRenderGraphComputePassDesc ClusterPass{};
+				ClusterPass.Name = "BuildForwardLightClusters";
+				ClusterPass.ReadResources = { SceneLights->GetBuffer() };
+				ClusterPass.WriteResources = { Grid.GetCountsResource(), Grid.GetIndicesResource() };
+				if (!Graph.AddComputePass(std::move(ClusterPass), [this, Renderer, SceneLights]
+					{
+						LightResources->GetClusters().ExecuteBuild(Renderer, SceneLights);
+						bClustersBuilt = true;
+					})) return false;
+			}
+		}
 		FRenderGraphRasterPassDesc Forward{};
 		Forward.Name = "ForwardOpaque";
 		Forward.ColorAttachments = {
@@ -221,14 +353,10 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 				bCorePassSucceeded = Processor.Build(View, RenderData.RenderQueue,
 					&RenderData, EMeshPassType::Forward, Batches, Options.LightingModel);
 				if (!bCorePassSucceeded) return;
-				bCorePassSucceeded = Lighting->BeginForwardLighting(View,
-					RenderData.AmbientLight, RenderData.VisibleDirectionalLights,
-					RenderData.VisiblePointLights, RenderData.VisibleSpotLights,
-					Options.LightingModel, Options.bEnableClusteredLightCulling,
-					RenderData.bHasSkyLight ? &RenderData.SkyLight : nullptr);
+				bCorePassSucceeded = BindForwardLighting(Renderer, Options);
 				if (!bCorePassSucceeded) return;
 				Renderer->DrawMeshes(Batches);
-				Lighting->EndForwardLighting();
+				UnbindForwardLighting(Renderer);
 			})) return false;
 	}
 
