@@ -94,8 +94,7 @@ float3 CalculateSpecularLight(float3 N, float3 V, float3 L, float3 Radiance)
 }
 #endif
 
-void AddLight(inout float3 Diffuse, inout float3 Specular,
-    float3 N, float3 V, float3 L, float3 Radiance)
+void AddLight(inout float3 Diffuse, inout float3 Specular, float3 N, float3 V, float3 L, float3 Radiance)
 {
     Diffuse += CalculateDiffuseLight(N, L, Radiance);
 
@@ -240,8 +239,7 @@ VS_OUT Uber_VS(VS_IN Input)
     Output.UV = Input.UV + UVOffset;
 
 #if LIGHTING_MODEL_GOURAUD || LIGHTING_MODEL_LAMBERT || LIGHTING_MODEL_PHONG
-    float3 N = SafeNormalize(
-        mul(float4(Input.Normal, 0.0f), NormalMatrix).xyz);
+    float3 N = SafeNormalize( mul(float4(Input.Normal, 0.0f), NormalMatrix).xyz);
 #endif
 
 #if LIGHTING_MODEL_GOURAUD
@@ -260,8 +258,7 @@ float4 Uber_PS(VS_OUT Input) : SV_TARGET
 
     // 일반 UNORM 컬러 텍스처를 linear로 변환.
     // 이후 ToneMap에서 화면 감마 적용.
-    float3 Albedo = pow(max(TextureColor.rgb, 0.0f), 2.2f)
-    * BaseColor.rgb * Input.Color.rgb;
+    float3 Albedo = pow(max(TextureColor.rgb, 0.0f), 2.2f) * BaseColor.rgb ;
 
 #if LIGHTING_MODEL_UNLIT
     float3 Color = Albedo;
@@ -277,7 +274,7 @@ float4 Uber_PS(VS_OUT Input) : SV_TARGET
     float3 Color = Albedo * Diffuse + Specular;
 #endif
 
-    return float4(Color, TextureColor.a * BaseColor.a * Input.Color.a);
+    return float4(Color, TextureColor.a * BaseColor.a);
 }
 
 VS_OUT mainVS(VS_IN Input)
