@@ -43,6 +43,7 @@
 #include <functional>
 
 class FSceneRenderer;
+struct FSceneOverlayCallbacks;
 class FGameViewportClient;
 
 class UEditorEngine : public UEngine
@@ -78,10 +79,10 @@ private:
 	void TickWorld(float DeltaTime);
 	// 한 번 캡처한 월드 결과를 재사용해 현재 레이아웃의 각 View를 렌더한다.
 	void RenderViewports();
-	// 씬, 화면 효과, 뷰포트 오버레이를 한 그래프에 등록해 실행한다.
+	// 에디터 렌더 콜백을 제공하고 FSceneRenderer가 구성한 그래프를 실행한다.
 	bool RenderScene(FSceneViewTargets& Targets, const FSceneView& SceneView,
 		FSceneRenderer& SceneRenderer, UWorld* TargetWorld, const FSceneRenderOptions& Options,
-		const std::function<bool(FRenderGraphBuilder&, FRenderGraphTextureRef, FRenderGraphTextureRef)>& AddOverlays);
+		const std::function<void(FSceneOverlayCallbacks&)>& BuildOverlays);
 	void RenderSceneText(UWorld* TargetWorld, const FSceneView& SceneView);
 	bool RenderHeightFog(UWorld* TargetWorld, const FSceneView& SceneView, FTexture2D* DepthTarget, FTexture2D* ColorTarget);
 	bool RenderFireBall(UWorld* TargetWorld, const FSceneView& SceneView, FTexture2D* DepthTarget, FTexture2D* ColorTarget);

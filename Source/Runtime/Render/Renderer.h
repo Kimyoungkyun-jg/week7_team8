@@ -8,54 +8,41 @@
 #include "Occlusion/GPUOcclusion.h"
 #include "Engine/LightSceneProxy.h"
 #include "Render/Buffer.h"
-#include "LightingRenderer.h"
-#include "MeshDrawRenderer.h"
+#include "MeshPassProcessor.h"
+#include <span>
 
 class FRenderer
 {
 public:
 	bool Init();
-	void PrepareSkyLight(const FSkyLightRenderData& SkyLight);
-	const FSkyLightEnvironment* GetSkyLightEnvironment(const FString& SourcePath) const;
-	void DrawDeferredLighting(const FSceneView& View, FTexture2D* BaseColor, FTexture2D* Normal,
-		FTexture2D* Depth, uint32 ViewportWidth, uint32 ViewportHeight,
-		const FAmbientLightRenderData& AmbientLight, const TArray<FDirectionalLightRenderData>& DirectionalLights,
-		const TArray<FPointLightRenderData>& PointLights, const TArray<FSpotLightRenderData>& SpotLights,
-		const FSkyLightRenderData* SkyLight = nullptr);
-	void DrawToneMap(FTexture2D* LightingHDR, FTexture2D* Depth);
 
-	// 시점 상수 버퍼 및 렌더링 상태 설정
-	void SetupView(const FSceneView& View);
-
-	// ObjViewer는 이 Forward 경로를 사용한다. 에디터와 PIE는 SceneRenderer와 GBuffer를 사용한다.
-	void RenderAll(const FSceneView& View, const FRenderQueue& InQueue);
-
-	// 불투명 요소 렌더링
-	void RenderDeferredOpaque(const FSceneView& View, const FRenderQueue& InQueue, bool bGBufferPass = false);
-	bool RenderForwardOpaque(const FSceneView& View, const FRenderQueue& InQueue,
-		const FAmbientLightRenderData& AmbientLight, const TArray<FDirectionalLightRenderData>& DirectionalLights,
-		const TArray<FPointLightRenderData>& PointLights,
-		const TArray<FSpotLightRenderData>& SpotLights, ELightingModel LightingModel,
-		bool bEnableClusteredLightCulling, const FSkyLightRenderData* SkyLight = nullptr);
-
-	// 반투명 요소 렌더링
-	void RenderTranslucent(const FSceneView& View, const FRenderQueue& InQueue);
+	// 패스의 의미를 해석하지 않고 준비된 GPU 상태와 드로우만 제출한다.
+	void UploadViewMatrix(const FMatrix& ViewProjection);
+	void DrawMeshes(std::span<const FMeshDrawBatch> Batches);
+	void DrawFullscreen(const FPipelineState& Pipeline,
+		std::span<FTexture2D* const> Textures);
+	void BindPixelConstant(uint32 Slot, FConstantBuffer* Buffer);
 
 	// 오클루전 객체 조회
 	FGPUOcclusion& GetGPUOcclusion() { return GPUOcclusion; }
 
-	// 캐시된 스태틱 메시 경로
-	void ResetStaticDrawGroups() { MeshDrawer.ResetStaticDrawGroups(); }
-	void AddStaticDrawGroup(const FStaticDrawGroup* Group) { MeshDrawer.AddStaticDrawGroup(Group); }
-
-	// 측정 전용 불투명 오클루전 검사
-	FOcclusionMeasureResult MeasureOpaqueOcclusion(const FMatrix& ViewProjection, const FRenderQueue& InQueue);
+	// 측정 대상 드로우를 동일한 GPU 상태로 다시 제출한다.
+	FOcclusionMeasureResult MeasureDrawVisibility(std::span<const FMeshDrawBatch> Batches);
 
 	uint8* BeginObjectConstants(uint32 MaxSlots);
 	void EndObjectConstants();
 
 private:
-	FMeshDrawRenderer MeshDrawer;
-	FLightingRenderer Lighting;
+	void EnsurePerObjectSlotCapacity(uint32 SlotCount);
+	void BindBatch(const FMeshDrawBatch& Batch);
+	void BindObject(const FMeshDrawBatch& Batch, const FMeshDrawBatch::FItem& Item);
+	TUniquePtr<FConstantBuffer> ObjectCB;
+	TUniquePtr<FConstantBuffer> ViewCB;
+	TUniquePtr<FConstantBuffer> MaterialCB;
+	TUniquePtr<FConstantBuffer> PerObjectSlotCB;
+	uint32 PerObjectSlotCapacity = 0;
+	bool bUsePerObjectSlots = false;
+	TArray<ComPtr<ID3D11Query>> OcclusionQueries;
+	ComPtr<ID3D11DepthStencilState> DepthLessEqualReadOnly;
 	FGPUOcclusion GPUOcclusion;
 };

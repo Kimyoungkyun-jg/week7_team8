@@ -1,6 +1,5 @@
 #include "EnginePCH.h"
 #include "LightingRenderer.h"
-#include "MeshDrawRenderer.h"
 #include "RenderCommand.h"
 #include "RenderResourceManager.h"
 #include "SceneView.h"
@@ -40,17 +39,6 @@ namespace
 		return true;
 	}
 
-	struct FDeferredLightConstants
-	{
-		FMatrix InverseViewProjection;
-		FVector4 CameraPosition; // W: 원근 투영 여부
-		FVector4 CameraForward;
-		FVector4 ViewportPass;
-		FAmbientLightRenderData Ambient;
-		uint32 LightCounts[4]; // x: 포인트 개수, y: 스포트 개수, z: 방향광 개수
-		uint32 LightOffsets[4];
-		FVector4 SkyColorIntensity;
-	};
 	static_assert(sizeof(FPointLightRenderData) == 48);
 	static_assert(offsetof(FDeferredLightConstants, ViewportPass) == 96);
 	static_assert(offsetof(FDeferredLightConstants, Ambient) == 112);
@@ -133,20 +121,17 @@ bool FLightingRenderer::UpdateSceneLights(
 	return UploadLightBuffer(SceneLightBuffer, PackedLights);
 }
 
-bool FLightingRenderer::RenderForwardOpaque(const FSceneView& View, const FRenderQueue& InQueue,
+bool FLightingRenderer::BeginForwardLighting(const FSceneView& View,
 	const FAmbientLightRenderData& AmbientLight,
 	const TArray<FDirectionalLightRenderData>& DirectionalLights,
 	const TArray<FPointLightRenderData>& PointLights,
 	const TArray<FSpotLightRenderData>& SpotLights, ELightingModel LightingModel,
-	bool bEnableClusteredLightCulling, const FSkyLightRenderData* SkyLight, FMeshDrawRenderer& MeshDrawer)
+	bool bEnableClusteredLightCulling, const FSkyLightRenderData* SkyLight)
 {
-	FPipelineState PSO;
 	FForwardLightingConstants Lighting{};
 	FPipelineState* BasePSO = FRenderResourceManager::GetPSO(EPSOType::StaticMesh_Forward);
 	FShaderProgram* Program = FRenderResourceManager::GetForwardShaderProgram(LightingModel);
-	if (!BasePSO || !Program || !ForwardLightCB || !MeshDrawer.IsForwardReady()) return false;
-	PSO = *BasePSO;
-	PSO.Shader = Program;
+	if (!BasePSO || !Program || !ForwardLightCB) return false;
 	const bool bUseSkyLight = SkyLight && FindSkyLightEnvironment(SkyLight->SourcePath);
 	Lighting.Ambient = bUseSkyLight ? FAmbientLightRenderData{ FVector4(0.0f) } : AmbientLight;
 	if (bUseSkyLight) Lighting.SkyColorIntensity = SkyLight->ColorIntensity;
@@ -154,7 +139,8 @@ bool FLightingRenderer::RenderForwardOpaque(const FSceneView& View, const FRende
 	if (!UpdateSceneLights(DirectionalLights, PointLights, SpotLights,
 		Lighting.LightCounts, Lighting.LightOffsets)) return false;
 	RenderCommand::UpdateBufferData(ForwardLightCB.get(), &Lighting, sizeof(Lighting));
-	MeshDrawer.SetupView(View);
+	RenderCommand::BindConstantBuffer(1, ForwardLightCB.get(),
+		EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
 	const FSkyLightEnvironment* SkyEnvironment = SkyLight
 		? FindSkyLightEnvironment(SkyLight->SourcePath) : nullptr;
 	RenderCommand::BindShaderResource(ForwardSkyIrradianceSlot,
@@ -167,30 +153,33 @@ bool FLightingRenderer::RenderForwardOpaque(const FSceneView& View, const FRende
 		(Lighting.LightCounts[0] || Lighting.LightCounts[1]))
 		bClustersBuilt = ForwardClusterGrid.Build(View, Lighting, SceneLightBuffer.get());
 	ForwardClusterGrid.PreparePixelShader(View, Lighting, bClustersBuilt);
+	ForwardClusterGrid.BindPixelShader();
+	RenderCommand::BindShaderResource(ForwardSceneLightSlot,
+		SceneLightBuffer && SceneLightBuffer->GetSRV() ? SceneLightBuffer.get() : nullptr,
+		EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
+	return true;
+}
 
-	MeshDrawer.RenderForwardOpaque(View, InQueue, PSO, ForwardLightCB.get(),
-		SceneLightBuffer.get(), ForwardClusterGrid);
+void FLightingRenderer::EndForwardLighting()
+{
 	ForwardClusterGrid.UnbindPixelShader();
 	RenderCommand::UnbindShaderResources(ForwardSceneLightSlot, 1,
 		EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
 	RenderCommand::UnbindShaderResources(ForwardSkyIrradianceSlot, 1,
 		EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
-
-	return true;
 }
 
 
-void FLightingRenderer::DrawDeferredLighting(const FSceneView& View, FTexture2D* BaseColor,
-	FTexture2D* Normal, FTexture2D* Depth, uint32 ViewportWidth, uint32 ViewportHeight,
+bool FLightingRenderer::BeginDeferredLighting(const FSceneView& View,
+	uint32 ViewportWidth, uint32 ViewportHeight,
 	const FAmbientLightRenderData& AmbientLight,
 	const TArray<FDirectionalLightRenderData>& DirectionalLights,
 	const TArray<FPointLightRenderData>& PointLights,
 	const TArray<FSpotLightRenderData>& SpotLights, const FSkyLightRenderData* SkyLight)
 {
-	FPipelineState* PSO = FRenderResourceManager::GetPSO(EPSOType::DeferredLighting);
-	if (!PSO || !PSO->Shader || !PSO->Shader->VertexShader || !PSO->Shader->PixelShader || !DeferredLightCB)
-		return;
-	FDeferredLightConstants Constants{};
+	if (!DeferredLightCB) return false;
+	FDeferredLightConstants& Constants = DeferredConstants;
+	Constants = {};
 	Constants.InverseViewProjection = View.ViewProjectionMatrix.Inverse();
 	Constants.CameraPosition = FVector4(View.ViewLocation.X, View.ViewLocation.Y,
 		View.ViewLocation.Z, View.bIsPerspective ? 1.0f : 0.0f);
@@ -205,7 +194,7 @@ void FLightingRenderer::DrawDeferredLighting(const FSceneView& View, FTexture2D*
 		SpotLights, Constants.LightCounts, Constants.LightOffsets))
 	{
 		HTR_LOG(Warning, "Deferred light buffer upload failed");
-		return;
+		return false;
 	}
 	Constants.ViewportPass = FVector4(
 		static_cast<float>(ViewportWidth),
@@ -213,12 +202,7 @@ void FLightingRenderer::DrawDeferredLighting(const FSceneView& View, FTexture2D*
 		0.0f, 0.0f);
 	RenderCommand::UpdateBufferData(DeferredLightCB.get(), &Constants, sizeof(Constants));
 
-	RenderCommand::BindPipelineState(*PSO);
 	RenderCommand::BindConstantBuffer(0, DeferredLightCB.get(), EShaderBindFlagBits::Pixel);
-	RenderCommand::BindVertexBuffer(nullptr);
-	RenderCommand::BindShaderResource(0, BaseColor, EShaderBindFlagBits::Pixel);
-	RenderCommand::BindShaderResource(1, Normal, EShaderBindFlagBits::Pixel);
-	RenderCommand::BindShaderResource(2, Depth, EShaderBindFlagBits::Pixel);
 	RenderCommand::BindShaderResource(DeferredSceneLightSlot,
 		(PointLights.IsEmpty() && DirectionalLights.IsEmpty() && SpotLights.IsEmpty())
 			? nullptr : SceneLightBuffer.get(),
@@ -227,19 +211,17 @@ void FLightingRenderer::DrawDeferredLighting(const FSceneView& View, FTexture2D*
 		SkyEnvironment ? SkyEnvironment->GetIrradianceCube() : nullptr,
 		EShaderBindFlagBits::Pixel);
 	RenderCommand::BindSamplerState(1, ESamplerState::LinearClamp, EShaderBindFlagBits::Pixel);
-	RenderCommand::Draw(3);
-	if (!PointLights.IsEmpty() || !SpotLights.IsEmpty())
-	{
-		FPipelineState* AdditivePSO = FRenderResourceManager::GetPSO(EPSOType::DeferredPointLighting);
-		if (AdditivePSO && AdditivePSO->Shader && AdditivePSO->Shader->VertexShader && AdditivePSO->Shader->PixelShader)
-		{
-			Constants.ViewportPass.W = 1.0f;
-			RenderCommand::UpdateBufferData(DeferredLightCB.get(), &Constants, sizeof(Constants));
-			RenderCommand::BindPipelineState(*AdditivePSO);
-			RenderCommand::Draw(3);
-		}
-	}
+	return true;
+}
 
-	RenderCommand::UnbindShaderResources(0, 5, EShaderBindFlagBits::Pixel);
+void FLightingRenderer::PrepareAdditiveDeferredLighting()
+{
+	DeferredConstants.ViewportPass.W = 1.0f;
+	RenderCommand::UpdateBufferData(DeferredLightCB.get(), &DeferredConstants, sizeof(DeferredConstants));
+}
+
+void FLightingRenderer::EndDeferredLighting()
+{
+	RenderCommand::UnbindShaderResources(DeferredSceneLightSlot, 2, EShaderBindFlagBits::Pixel);
 }
 

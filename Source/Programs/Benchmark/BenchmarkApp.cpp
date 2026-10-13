@@ -326,23 +326,32 @@ void UBenchmarkEngine::Tick(float DeltaTime)
 	const FVector CameraForward = Camera->GetTransform().GetForward();
 
 	FSceneView BenchmarkView;
+	BenchmarkView.ViewMatrix = Camera->GetViewMatrix();
+	BenchmarkView.ProjectionMatrix = Projection;
 	BenchmarkView.ViewProjectionMatrix = ViewProjection;
 	BenchmarkView.ViewLocation = CameraLocation;
 	BenchmarkView.ViewForward = CameraForward;
 	BenchmarkView.bIsWireframe = false;
 
 	// 반투명이 Grid 위에 합성되도록 불투명 → Grid → 반투명 순서로 그린다.
+	FMeshPassProcessor Processor;
+	std::vector<FMeshDrawBatch> OpaqueBatches;
 	{
 		SCOPE_CYCLE_COUNTER(STAT_RenderOpaqueTotal);
 		FSceneRenderer::PrepareDrawData(Renderer, RenderData);
-		Renderer->RenderDeferredOpaque(BenchmarkView, RenderData.RenderQueue);
+		if (Processor.Build(BenchmarkView, RenderData.RenderQueue, &RenderData,
+			EMeshPassType::Opaque, OpaqueBatches))
+		{
+			Renderer->UploadViewMatrix(ViewProjection);
+			Renderer->DrawMeshes(OpaqueBatches);
+		}
 	}
 
 	// Grid가 깊이를 쓰기 전, 불투명만 그려진 깊이 버퍼로 측정한다.
 	if (bMeasureOcclusionRequested)
 	{
 		bMeasureOcclusionRequested = false;
-		LastOcclusionMeasure = Renderer->MeasureOpaqueOcclusion(ViewProjection, RenderData.RenderQueue);
+		LastOcclusionMeasure = Renderer->MeasureDrawVisibility(OpaqueBatches);
 	}
 
 	GridRenderer->OnRenderBatchGrid(
@@ -359,7 +368,13 @@ void UBenchmarkEngine::Tick(float DeltaTime)
 		RenderCommand::SetRasterizerState(ERasterizerState::SolidBack);
 		RenderCommand::SetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 		FSceneRenderer::PrepareDrawData(Renderer, RenderData);
-		Renderer->RenderTranslucent(BenchmarkView, RenderData.RenderQueue);
+		std::vector<FMeshDrawBatch> TranslucentBatches;
+		if (Processor.Build(BenchmarkView, RenderData.RenderQueue, &RenderData,
+			EMeshPassType::Translucent, TranslucentBatches))
+		{
+			Renderer->UploadViewMatrix(ViewProjection);
+			Renderer->DrawMeshes(TranslucentBatches);
+		}
 
 		DrawSelectionBounds(ViewProjection);
 

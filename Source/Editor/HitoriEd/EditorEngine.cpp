@@ -50,17 +50,6 @@ DECLARE_CYCLE_STAT("Capture World", STAT_CaptureWorld);
 DECLARE_CYCLE_STAT("Build Render Queue", STAT_BuildRenderQueue);
 DECLARE_CYCLE_STAT("ImGui", STAT_ImGui);
 
-FRenderGraphRasterPassDesc MakeViewportPass(const char* Name,
-	FRenderGraphTextureRef Color, FRenderGraphTextureRef Depth = {},
-	ERenderGraphLoadAction DepthLoad = ERenderGraphLoadAction::Load)
-{
-	FRenderGraphRasterPassDesc Pass{};
-	Pass.Name = Name;
-	Pass.ColorAttachments = { { Color, ERenderGraphLoadAction::Load } };
-	if (Depth)
-		Pass.DepthAttachment = { Depth, DepthLoad, 1.0f, 0 };
-	return Pass;
-}
 } // namespace
 
 #include "Core/SplashScreen.h"
@@ -234,7 +223,7 @@ bool UEditorEngine::Init() {
 	EditorControlsPanel->SetViewportsPanel(ViewportsPanel);
 
 	SettingsPanel->SetWorld(EditorWorld);
-	SettingsPanel->SetRenderer(Renderer);
+	SettingsPanel->SetLighting(GetEngineLoop().GetLighting());
 	SettingsPanel->SetViewportsPanel(ViewportsPanel);
 	ViewportsPanel->SetLayoutMode(ViewportLayoutMode, SingleViewportIndex);
 
@@ -652,7 +641,7 @@ void UEditorEngine::RenderViewports() {
 					SceneView = GameClient->CalcSceneView(ViewRect);
 
 					FSceneRenderer SceneRenderer(CurrentWorld, SceneView, GameClient->GetRenderData());
-					SceneRenderer.InitViews(Renderer, AmbientLight, RenderSettings.bUseSkyLight);
+					SceneRenderer.InitViews(Renderer, GetEngineLoop().GetLighting(), AmbientLight, RenderSettings.bUseSkyLight);
 
 
 					RenderGameFrame(GameClient, SceneView, SceneRenderer, bIsSIEMode);
@@ -666,7 +655,7 @@ void UEditorEngine::RenderViewports() {
 			SceneView = ViewClient->CalcSceneView(ViewRect);
 
 			FSceneRenderer SceneRenderer(CurrentWorld, SceneView, ViewClient->GetRenderData());
-			SceneRenderer.InitViews(Renderer, AmbientLight, RenderSettings.bUseSkyLight);
+			SceneRenderer.InitViews(Renderer, GetEngineLoop().GetLighting(), AmbientLight, RenderSettings.bUseSkyLight);
 
 			RenderFrame(ViewClient, SceneView, SceneRenderer, CurrentWorld, bIsGameView);
 		}
@@ -699,7 +688,7 @@ void UEditorEngine::RenderViewports() {
 					FRect ViewRect{0.0f, 0.0f, static_cast<float>(Width), static_cast<float>(Height)};
 					FSceneView SceneView = GameClient->CalcSceneView(ViewRect);
 					FSceneRenderer SceneRenderer(Context.World(), SceneView, GameClient->GetRenderData());
-					SceneRenderer.InitViews(Renderer, AmbientLight, RenderSettings.bUseSkyLight);
+					SceneRenderer.InitViews(Renderer, GetEngineLoop().GetLighting(), AmbientLight, RenderSettings.bUseSkyLight);
 					RenderGameFrame(GameClient, SceneView, SceneRenderer);
 				}
 			}
@@ -722,33 +711,29 @@ void UEditorEngine::RenderGameFrame(FGameViewportClient* GameClient, const FScen
 	}
 	FSceneViewTargets& Targets = GameClient->GetViewTargets();
 	const bool bRendered = RenderScene(Targets, SceneView, SceneRenderer, GameClient->GetWorld(), Options,
-		[this, &Targets, &SceneView, bIsSIEMode](FRenderGraphBuilder& Graph,
-			FRenderGraphTextureRef Color, FRenderGraphTextureRef Depth)
+		[this, &Targets, &SceneView, bIsSIEMode](FSceneOverlayCallbacks& Overlays)
 	{
-		if (!bIsSIEMode) return true;
+		if (!bIsSIEMode) return;
 		const FViewportSettings ViewportSetting{ 0, 0, Targets.SceneColor->GetWidth(),
 			Targets.SceneColor->GetHeight(), 0.0f, 1.0f };
-		if (Outline->GetTarget() &&
-			!Graph.AddRasterPass(MakeViewportPass("SIEOutline", Color, Depth),
-				[this, &SceneView, ViewportSetting]
+		if (Outline->GetTarget())
+			Overlays.SIEOutline = [this, &SceneView, ViewportSetting]
 				{
 					OutlineRenderer->OnRender(*Outline, SceneView.ViewProjectionMatrix, ViewportSetting);
-				})) return false;
-		if (Gizmo->GetTarget() &&
-			!Graph.AddRasterPass(MakeViewportPass("SIEGizmo", Color, Depth, ERenderGraphLoadAction::Clear),
-				[this, &SceneView]
+				};
+		if (Gizmo->GetTarget())
+			Overlays.SIEGizmo = [this, &SceneView]
 				{
 					GizmoRenderer->OnRender(*Gizmo, SceneView.ViewProjectionMatrix,
 						SceneView.ViewLocation, !SceneView.bIsPerspective);
-				})) return false;
-		return true;
+				};
 	});
 	if (!bRendered) return;
 }
 
 bool UEditorEngine::RenderScene(FSceneViewTargets& Targets, const FSceneView& SceneView,
 	FSceneRenderer& SceneRenderer, UWorld* TargetWorld, const FSceneRenderOptions& Options,
-	const std::function<bool(FRenderGraphBuilder&, FRenderGraphTextureRef, FRenderGraphTextureRef)>& AddOverlays)
+	const std::function<void(FSceneOverlayCallbacks&)>& BuildOverlays)
 {
 	FTexture2D* ColorTarget = Targets.SceneColor.get();
 	FTexture2D* DepthTarget = Targets.Depth.get();
@@ -759,83 +744,43 @@ bool UEditorEngine::RenderScene(FSceneViewTargets& Targets, const FSceneView& Sc
 	if (!Width || !Height || !Targets.IsValidFor(Width, Height))
 		return false;
 
-	FRenderGraphBuilder Graph;
-	const FRenderGraphTextureRef SceneColor = Graph.ImportTexture(ColorTarget, "SceneColor");
-	const FRenderGraphTextureRef Depth = Graph.ImportTexture(DepthTarget, "SceneDepth");
-	if (!SceneColor || !Depth ||
-		!SceneRenderer.AddCorePasses(Graph, Renderer, Targets, Options, SkyboxRenderer.get()))
-		return false;
-
-	if (Options.bDrawPrimitives)
+	FScenePassCallbacks Callbacks;
+	Callbacks.FireBall = [this, TargetWorld, &SceneView, DepthTarget, ColorTarget]
 	{
-		auto FireBall = MakeViewportPass("FireBall", SceneColor);
-		FireBall.ReadTextures = { Depth };
-		if (!Graph.AddRasterPass(std::move(FireBall), [this, TargetWorld, &SceneView, DepthTarget, ColorTarget]
-			{
-				RenderFireBall(TargetWorld, SceneView, DepthTarget, ColorTarget);
-			})) return false;
-	}
-
-	bool bHasFog = false;
-	if (Options.bDrawPrimitives && Options.bEnableFog)
+		RenderFireBall(TargetWorld, SceneView, DepthTarget, ColorTarget);
+	};
+	Callbacks.HeightFog = [this, TargetWorld, &SceneView, DepthTarget, ColorTarget]
 	{
-		auto Fog = MakeViewportPass("HeightFog", SceneColor);
-		Fog.ReadTextures = { Depth };
-		if (!Graph.AddRasterPass(std::move(Fog), [this, TargetWorld, &SceneView, DepthTarget, ColorTarget, &bHasFog]
-			{
-				bHasFog = RenderHeightFog(TargetWorld, SceneView, DepthTarget, ColorTarget);
-			})) return false;
-	}
-	if (Options.bDrawPrimitives)
+		return RenderHeightFog(TargetWorld, SceneView, DepthTarget, ColorTarget);
+	};
+	Callbacks.TranslucentFogConstants = [this](bool bHasFog)
 	{
-		auto Translucent = MakeViewportPass("Translucent", SceneColor, Depth);
-		if (!Graph.AddRasterPass(std::move(Translucent), [this, &SceneRenderer, &bHasFog]
-			{
-				FConstantBuffer* FogConstants = HeightFogRenderer
-					? HeightFogRenderer->GetTranslucentFogConstants(bHasFog) : nullptr;
-				SceneRenderer.RenderTranslucent(Renderer, FogConstants);
-			})) return false;
-	}
+		return HeightFogRenderer ? HeightFogRenderer->GetTranslucentFogConstants(bHasFog) : nullptr;
+	};
+	Callbacks.SceneText = [this, TargetWorld, &SceneView] { RenderSceneText(TargetWorld, SceneView); };
+	if (SceneDepthRenderer)
+		Callbacks.DepthVisualization = [this, &SceneView, DepthTarget, ColorTarget, Range = Options.SceneDepthRange]
+		{
+			SceneDepthRenderer->OnRender(SceneView, DepthTarget, ColorTarget, Range);
+		};
+	if (WorldNormalRenderer)
+		Callbacks.NormalVisualization = [this, DepthTarget, ColorTarget](FTexture2D* Normal)
+		{
+			WorldNormalRenderer->OnRender(Normal, DepthTarget, ColorTarget);
+		};
 
-	if (!Graph.AddRasterPass(MakeViewportPass("SceneText", SceneColor, Depth),
-		[this, TargetWorld, &SceneView] { RenderSceneText(TargetWorld, SceneView); })) return false;
-
-	if (Options.bShowSceneDepth && SceneDepthRenderer)
-	{
-		auto Visualize = MakeViewportPass("SceneDepthVisualization", SceneColor);
-		Visualize.ReadTextures = { Depth };
-		if (!Graph.AddRasterPass(std::move(Visualize), [this, &SceneView, DepthTarget, ColorTarget, &Options]
-			{
-				SceneDepthRenderer->OnRender(SceneView, DepthTarget, ColorTarget, Options.SceneDepthRange);
-			})) return false;
-	}
-	else if (Options.bShowWorldNormal && WorldNormalRenderer)
-	{
-		const auto Normal = SceneRenderer.GetNormalRoughnessRef();
-		auto Visualize = MakeViewportPass("WorldNormalVisualization", SceneColor);
-		Visualize.ReadTextures = { Normal, Depth };
-		if (!Graph.AddRasterPass(std::move(Visualize), [this, &Graph, Normal, DepthTarget, ColorTarget]
-			{
-				WorldNormalRenderer->OnRender(Graph.Resolve(Normal), DepthTarget, ColorTarget);
-			})) return false;
-	}
-
-	FRenderGraphTextureRef FinalColor = SceneColor;
-	bool bFXAASucceeded = true;
 	const bool bUseFXAA = Options.bEnableFXAA && !Options.bShowSceneDepth &&
 		!Options.bShowWorldNormal && FXAARenderer && FXAARenderer->PrepareOutput(ColorTarget);
 	if (bUseFXAA)
 	{
-		FinalColor = Graph.ImportTexture(FXAARenderer->GetOutputTarget().get(), "FXAAOutput");
-		auto FXAA = MakeViewportPass("FXAA", FinalColor);
-		FXAA.ReadTextures = { SceneColor };
-		if (!Graph.AddRasterPass(std::move(FXAA), [this, ColorTarget, &bFXAASucceeded]
-			{
-				bFXAASucceeded = FXAARenderer->OnRender(ColorTarget);
-			})) return false;
+		Callbacks.FXAAOutput = FXAARenderer->GetOutputTarget().get();
+		Callbacks.FXAA = [this, ColorTarget] { return FXAARenderer->OnRender(ColorTarget); };
 	}
-	if (AddOverlays && !AddOverlays(Graph, FinalColor, Depth)) return false;
-	if (!Graph.Execute() || !SceneRenderer.DidCorePassSucceed() || !bFXAASucceeded) return false;
+	if (BuildOverlays) BuildOverlays(Callbacks.Overlays);
+	FRenderGraphBuilder Graph;
+	if (!SceneRenderer.AddViewportPasses(Graph, Renderer, Targets, Options, SkyboxRenderer.get(), Callbacks) ||
+		!Graph.Execute() || !SceneRenderer.DidCorePassSucceed() || !SceneRenderer.DidFXAAPassSucceed())
+		return false;
 	if (bUseFXAA && !Targets.SwapSceneColorAndBind(FXAARenderer->GetOutputTarget()))
 		return false;
 	// UI가 완성된 SceneColor를 SRV로 읽으므로 출력 RTV를 남겨 두지 않는다.
@@ -1029,10 +974,9 @@ void UEditorEngine::RenderFrame(FEditorViewportClient *ViewClient,
 
 	FSceneViewTargets& Targets = ViewClient->GetViewTargets();
 	const bool bRendered = RenderScene(Targets, SceneView, SceneRenderer, TargetWorld, Options,
-		[this, ViewClient, &SceneView, &Targets, bIsPIE](FRenderGraphBuilder& Graph,
-			FRenderGraphTextureRef Color, FRenderGraphTextureRef Depth)
+		[this, ViewClient, &SceneView, &Targets, bIsPIE](FSceneOverlayCallbacks& Overlays)
 	{
-		if (bIsPIE) return true;
+		if (bIsPIE) return;
 		const FViewportSettings ViewportSetting{ 0, 0, Targets.SceneColor->GetWidth(),
 			Targets.SceneColor->GetHeight(), 0.0f, 1.0f };
 		const bool bIsActiveViewport = ViewportsPanel &&
@@ -1042,8 +986,7 @@ void UEditorEngine::RenderFrame(FEditorViewportClient *ViewClient,
 			 Cast<APointLightActor>(Gizmo->GetTarget()->GetOwner()));
 		if (SettingsPanel->GetSettings().bDrawBatchLine || bDrawSelectedLight)
 		{
-			if (!Graph.AddRasterPass(MakeViewportPass("EditorLines", Color, Depth),
-				[this, &SceneView, bDrawSelectedLight]
+			Overlays.EditorLines = [this, &SceneView, bDrawSelectedLight]
 				{
 					LineBatcher->BeginFrame();
 					if (SettingsPanel->GetSettings().bDrawBatchLine && SettingsPanel->GetSettings().bDrawBoundingBox)
@@ -1059,12 +1002,11 @@ void UEditorEngine::RenderFrame(FEditorViewportClient *ViewClient,
 							Light->GetPointLightComponent()->DrawDebug(LineBatcher.get());
 					}
 					LineBatcher->OnRender(SceneView.ViewProjectionMatrix);
-				})) return false;
+				};
 		}
 		if (SettingsPanel->GetSettings().bDrawBatchLine)
 		{
-			if (!Graph.AddRasterPass(MakeViewportPass("EditorGrid", Color, Depth),
-				[this, ViewClient, &SceneView, ViewportSetting]
+			Overlays.EditorGrid = [this, ViewClient, &SceneView, ViewportSetting]
 				{
 					EGridPlane GridPlane = EGridPlane::XY;
 					switch (ViewClient->GetViewportType())
@@ -1081,30 +1023,23 @@ void UEditorEngine::RenderFrame(FEditorViewportClient *ViewClient,
 							SceneView.ViewForward, GridPlane,
 							static_cast<float>(SettingsPanel->GetSettings().GridSpacing),
 							SceneView.bIsPerspective, ViewportSetting);
-				})) return false;
+				};
 		}
-		if (bIsActiveViewport && Outline->GetTarget() &&
-			!Graph.AddRasterPass(MakeViewportPass("EditorOutline", Color, Depth),
-				[this, &SceneView, ViewportSetting]
+		if (bIsActiveViewport && Outline->GetTarget())
+			Overlays.EditorOutline = [this, &SceneView, ViewportSetting]
 				{
 					OutlineRenderer->OnRender(*Outline, SceneView.ViewProjectionMatrix, ViewportSetting);
-				})) return false;
-		if (bIsActiveViewport && Gizmo->GetTarget() &&
-			!Graph.AddRasterPass(MakeViewportPass("EditorGizmo", Color, Depth, ERenderGraphLoadAction::Clear),
-				[this, &SceneView]
+				};
+		if (bIsActiveViewport && Gizmo->GetTarget())
+			Overlays.EditorGizmo = [this, &SceneView]
 				{
 					GizmoRenderer->OnRender(*Gizmo, SceneView.ViewProjectionMatrix,
 						SceneView.ViewLocation, !SceneView.bIsPerspective);
-				})) return false;
+				};
 		// UUID는 깊이를 지운 뒤 씬 위에 표시한다.
-		FRenderGraphRasterPassDesc ClearDepth{};
-		ClearDepth.Name = "EditorClearDepth";
-		ClearDepth.DepthAttachment = { Depth, ERenderGraphLoadAction::Clear, 1.0f, 0 };
-		if (!Graph.AddRasterPass(std::move(ClearDepth), [] {})) return false;
-		if (SettingsPanel->GetSettings().bShowUUID &&
-			!Graph.AddRasterPass(MakeViewportPass("EditorUUID", Color, Depth),
-				[this, &SceneView] { RenderActorUUIDs(SceneView); })) return false;
-		return true;
+		Overlays.bClearEditorDepth = true;
+		if (SettingsPanel->GetSettings().bShowUUID)
+			Overlays.EditorUUID = [this, &SceneView] { RenderActorUUIDs(SceneView); };
 	});
 	if (!bRendered) return;
 }

@@ -10,9 +10,37 @@
 class UWorld;
 class FScene;
 class FRenderer;
+class FLightingRenderer;
 class FConstantBuffer;
+class FTexture2D;
 class FSkyboxRenderer;
 struct FSceneViewTargets;
+
+// 에디터는 실행할 작업만 제공한다. 패스 생성과 순서는 FSceneRenderer가 결정한다.
+struct FSceneOverlayCallbacks
+{
+	std::function<void()> EditorLines;
+	std::function<void()> EditorGrid;
+	std::function<void()> EditorOutline;
+	std::function<void()> EditorGizmo;
+	std::function<void()> SIEOutline;
+	std::function<void()> SIEGizmo;
+	bool bClearEditorDepth = false;
+	std::function<void()> EditorUUID;
+};
+
+struct FScenePassCallbacks
+{
+	std::function<void()> FireBall;
+	std::function<bool()> HeightFog;
+	std::function<FConstantBuffer*(bool)> TranslucentFogConstants;
+	std::function<void()> SceneText;
+	std::function<void()> DepthVisualization;
+	std::function<void(FTexture2D*)> NormalVisualization;
+	std::function<bool()> FXAA;
+	FTexture2D* FXAAOutput = nullptr;
+	FSceneOverlayCallbacks Overlays;
+};
 
 // 씬 렌더링 조율자
 class FSceneRenderer
@@ -24,7 +52,8 @@ public:
 	FSceneRenderer& operator=(const FSceneRenderer&) = delete;
 
 	// 가시성 검사 및 렌더 큐 수집
-	void InitViews(FRenderer* Renderer, const FAmbientLightRenderData& AmbientLight, bool bUseSkyLight = true);
+	void InitViews(FRenderer* Renderer, FLightingRenderer* Lighting,
+		const FAmbientLightRenderData& AmbientLight, bool bUseSkyLight = true);
 
 	// 뷰 결과를 하나 유지하는 벤치마크에서도 사용한다.
 	static void GatherRenderPackets(FScene& Scene, FSceneRenderData& Data, const FViewContext& View,
@@ -32,11 +61,11 @@ public:
 	static void PrepareDrawData(FRenderer* Renderer, const FSceneRenderData& Data);
 	const FRenderStats& GetRenderStats() const { return RenderData.RenderStats; }
 
-	// 한 뷰의 핵심 패스(GBuffer/Forward, 조명, 하늘, 톤매핑)를 그래프에 등록한다.
-	bool AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Renderer, FSceneViewTargets& Targets,
-		const FSceneRenderOptions& Options, FSkyboxRenderer* Skybox);
+	// 한 뷰의 모든 패스를 정해진 순서로 등록한다.
+	bool AddViewportPasses(FRenderGraphBuilder& Graph, FRenderer* Renderer, FSceneViewTargets& Targets,
+		const FSceneRenderOptions& Options, FSkyboxRenderer* Skybox, const FScenePassCallbacks& Callbacks);
 	bool DidCorePassSucceed() const { return bCorePassSucceeded; }
-	FRenderGraphTextureRef GetNormalRoughnessRef() const { return NormalRoughnessRef; }
+	bool DidFXAAPassSucceed() const { return bFXAAPassSucceeded; }
 
 	// 반투명 렌더링
 	void RenderTranslucent(FRenderer* Renderer, FConstantBuffer* FogConstants = nullptr);
@@ -49,12 +78,17 @@ public:
 	const FSceneView& GetView() const { return View; }
 	
 private:
+	bool AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Renderer, FSceneViewTargets& Targets,
+		const FSceneRenderOptions& Options, FSkyboxRenderer* Skybox);
 	bool IntersectSphereFrustum(const FVector4& PositionRadius, const FPlane (&Planes)[6]) const;
 
 	UWorld* World = nullptr;
 	FSceneView View;
 	FSceneRenderData& RenderData;
+	FLightingRenderer* Lighting = nullptr;
 	FViewContext CachedViewContext;
 	FRenderGraphTextureRef NormalRoughnessRef;
 	bool bCorePassSucceeded = true;
+	bool bFXAAPassSucceeded = true;
+	bool bHasFog = false;
 };

@@ -173,7 +173,14 @@ void UObjViewerEngine::RenderFrame()
 	SceneView.ViewLocation = GetCameraEye();
 
 	GetEngineLoop().BeginBackbufferPass();
-	GetEngineLoop().GetRenderer()->RenderAll(SceneView, RenderQueue);
+	FRenderer* Renderer = GetEngineLoop().GetRenderer();
+	FMeshPassProcessor Processor;
+	std::vector<FMeshDrawBatch> Batches;
+	Renderer->UploadViewMatrix(SceneView.ViewProjectionMatrix);
+	if (Processor.Build(SceneView, RenderQueue, nullptr, EMeshPassType::Opaque, Batches))
+		Renderer->DrawMeshes(Batches);
+	if (Processor.Build(SceneView, RenderQueue, nullptr, EMeshPassType::Translucent, Batches))
+		Renderer->DrawMeshes(Batches);
 	GetEngineLoop().EndBackbufferPass();
 }
 

@@ -4,7 +4,7 @@
 #include "Camera/CameraComponent.h"
 
 #include "Engine/World.h"
-#include "Render/Renderer.h"
+#include "Render/LightingRenderer.h"
 #include "Editor/Viewports/ViewportsPanel.h"
 #include "Editor/Viewports/EditorViewportClient.h"
 #include "GameFramework/DefaultPawn.h"
@@ -68,7 +68,7 @@ void FSettingsPanel::OnRender()
 	else
 	{
 		const FSkyLightSceneProxy* SkyLight = World->GetScene().GetActiveSkyLight(World->GetWorldType() == PIE);
-		bSkyLightReady = Renderer && Renderer->GetSkyLightEnvironment(SkyLight->GetRenderData().SourcePath);
+		bSkyLightReady = Lighting && Lighting->FindSkyLightEnvironment(SkyLight->GetRenderData().SourcePath);
 		ImGui::TextDisabled(bSkyLightReady
 			? "Sky Light active; Ambient controls are unused."
 			: "Ambient active: Sky Light cubemap unavailable.");
