@@ -17,7 +17,7 @@ enum class EPSOType : uint8
 	Outline_Draw,
 	StaticMesh_GBuffer,
 	DeferredLighting,
-	DeferredPointLighting,
+	DeferredPointLighting,      // 이전 재질 파일의 PSOType 숫자와 호환을 위해 ID 유지
 	ToneMap,
 	FireBall,
 	Billboard,

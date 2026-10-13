@@ -87,6 +87,7 @@ void FRenderer::DispatchCompute(ID3D11ComputeShader* Shader, ID3D11Buffer* Const
 	Context->CSSetUnorderedAccessViews(0, static_cast<UINT>(UAVs.size()), UAVs.data(), nullptr);
 	if (Sampler) Context->CSSetSamplers(0, 1, &Sampler);
 	Context->Dispatch(GroupsX, GroupsY, GroupsZ);
+	
 	ID3D11ShaderResourceView* NullSRV = nullptr;
 	ID3D11Buffer* NullCB = nullptr;
 	ID3D11SamplerState* NullSampler = nullptr;
@@ -101,14 +102,18 @@ void FRenderer::BindBatch(const FMeshDrawBatch& Batch)
 	RenderCommand::BindPipelineState(Batch.Pipeline);
 	if (Batch.bForceWireframe)
 		RenderCommand::SetRasterizerState(ERasterizerState::Wireframe);
+	
 	RenderCommand::BindVertexBuffer(Batch.VertexBuffer);
 	RenderCommand::BindIndexBuffer(Batch.IndexBuffer);
+	
 	if (Batch.bBindViewConstants)
 		RenderCommand::BindConstantBuffer(0, ViewCB.get(), EShaderBindFlagBits::Vertex);
 	for (uint32 Index = 0; Index < Batch.Textures.size(); ++Index)
 		RenderCommand::BindShaderResource(Index, Batch.Textures[Index].Texture,
 			Batch.Textures[Index].Stages);
+	
 	RenderCommand::BindSamplerState(0, Batch.Sampler, Batch.SamplerStages);
+	
 	if (Batch.MaterialDataSize)
 	{
 		RenderCommand::UpdateBufferData(MaterialCB.get(), Batch.MaterialData.data(), Batch.MaterialDataSize);
@@ -141,6 +146,7 @@ void FRenderer::DrawMeshes(std::span<const FMeshDrawBatch> Batches)
 			RenderCommand::UnbindShaderResources(static_cast<uint32>(Batch.Textures.size()),
 				PreviousTextureCount - static_cast<uint32>(Batch.Textures.size()),
 				EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
+		
 		PreviousTextureCount = static_cast<uint32>(Batch.Textures.size());
 		for (const FMeshDrawBatch::FItem& Item : Batch.Items)
 		{

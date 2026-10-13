@@ -223,7 +223,6 @@ bool UEditorEngine::Init() {
 	EditorControlsPanel->SetViewportsPanel(ViewportsPanel);
 
 	SettingsPanel->SetWorld(EditorWorld);
-	SettingsPanel->SetSceneLightResources(GetEngineLoop().GetSceneLightResources());
 	SettingsPanel->SetViewportsPanel(ViewportsPanel);
 	ViewportsPanel->SetLayoutMode(ViewportLayoutMode, SingleViewportIndex);
 
@@ -641,7 +640,7 @@ void UEditorEngine::RenderViewports() {
 					SceneView = GameClient->CalcSceneView(ViewRect);
 
 					FSceneRenderer SceneRenderer(CurrentWorld, SceneView, GameClient->GetRenderData());
-					SceneRenderer.InitViews(Renderer, GetEngineLoop().GetSceneLightResources(), AmbientLight, RenderSettings.bUseSkyLight);
+					SceneRenderer.InitViews(Renderer, AmbientLight, RenderSettings.bUseSkyLight);
 
 
 					RenderGameFrame(GameClient, SceneView, SceneRenderer, bIsSIEMode);
@@ -655,7 +654,7 @@ void UEditorEngine::RenderViewports() {
 			SceneView = ViewClient->CalcSceneView(ViewRect);
 
 			FSceneRenderer SceneRenderer(CurrentWorld, SceneView, ViewClient->GetRenderData());
-			SceneRenderer.InitViews(Renderer, GetEngineLoop().GetSceneLightResources(), AmbientLight, RenderSettings.bUseSkyLight);
+			SceneRenderer.InitViews(Renderer, AmbientLight, RenderSettings.bUseSkyLight);
 
 			RenderFrame(ViewClient, SceneView, SceneRenderer, CurrentWorld, bIsGameView);
 		}
@@ -688,7 +687,7 @@ void UEditorEngine::RenderViewports() {
 					FRect ViewRect{0.0f, 0.0f, static_cast<float>(Width), static_cast<float>(Height)};
 					FSceneView SceneView = GameClient->CalcSceneView(ViewRect);
 					FSceneRenderer SceneRenderer(Context.World(), SceneView, GameClient->GetRenderData());
-					SceneRenderer.InitViews(Renderer, GetEngineLoop().GetSceneLightResources(), AmbientLight, RenderSettings.bUseSkyLight);
+					SceneRenderer.InitViews(Renderer, AmbientLight, RenderSettings.bUseSkyLight);
 					RenderGameFrame(GameClient, SceneView, SceneRenderer);
 				}
 			}
@@ -744,7 +743,7 @@ bool UEditorEngine::RenderScene(FSceneViewTargets& Targets, const FSceneView& Sc
 	if (!Width || !Height || !Targets.IsValidFor(Width, Height))
 		return false;
 
-	FScenePassCallbacks Callbacks;
+	FScenePassCallbacks Callbacks; // 콜백함수 등록해주는 중
 	Callbacks.FireBall = [this, TargetWorld, &SceneView, DepthTarget, ColorTarget]
 	{
 		RenderFireBall(TargetWorld, SceneView, DepthTarget, ColorTarget);
@@ -776,7 +775,9 @@ bool UEditorEngine::RenderScene(FSceneViewTargets& Targets, const FSceneView& Sc
 		Callbacks.FXAAOutput = FXAARenderer->GetOutputTarget().get();
 		Callbacks.FXAA = [this, ColorTarget] { return FXAARenderer->OnRender(ColorTarget); };
 	}
-	if (BuildOverlays) BuildOverlays(Callbacks.Overlays);
+	
+	if (BuildOverlays) BuildOverlays(Callbacks.Overlays); // Overlay 콜백함수 등록하는 과정
+	
 	FRenderGraphBuilder Graph;
 	if (!SceneRenderer.AddViewportPasses(Graph, Renderer, Targets, Options, SkyboxRenderer.get(), Callbacks) ||
 		!Graph.Execute() || !SceneRenderer.DidCorePassSucceed() || !SceneRenderer.DidFXAAPassSucceed())
@@ -965,8 +966,8 @@ void UEditorEngine::RenderFrame(FEditorViewportClient *ViewClient,
 	Options.bDrawPrimitives = bIsPIE || SettingsPanel->GetSettings().bDrawPrimitives;
 	Options.bEnableFog = ViewClient->GetViewportMode() == EViewportMode::Solid;
 	Options.bEnableFXAA = SettingsPanel->GetSettings().bEnableFXAA;
-	Options.RenderingPath = SettingsPanel->GetSettings().RenderingPath;
-	Options.LightingModel = SettingsPanel->GetSettings().LightingModel;
+	Options.RenderingPath = SettingsPanel->GetSettings().RenderingPath; // Deferred 로 할지 아님 Forward로 할지
+	Options.LightingModel = SettingsPanel->GetSettings().LightingModel; // Forward에서 goraud, lambert, phong 선택
 	Options.bEnableClusteredLightCulling = SettingsPanel->GetSettings().bEnableClusteredLightCulling;
 	Options.bShowSceneDepth = !bIsPIE && ViewClient->IsSceneDepth();
 	Options.bShowWorldNormal = !bIsPIE && ViewClient->IsWorldNormal();
@@ -974,7 +975,7 @@ void UEditorEngine::RenderFrame(FEditorViewportClient *ViewClient,
 
 	FSceneViewTargets& Targets = ViewClient->GetViewTargets();
 	const bool bRendered = RenderScene(Targets, SceneView, SceneRenderer, TargetWorld, Options,
-		[this, ViewClient, &SceneView, &Targets, bIsPIE](FSceneOverlayCallbacks& Overlays)
+		[this, ViewClient, &SceneView, &Targets, bIsPIE](FSceneOverlayCallbacks& Overlays) // 다 그려진 화면위에 overlay 되는 거면 여기에 추가
 	{
 		if (bIsPIE) return;
 		const FViewportSettings ViewportSetting{ 0, 0, Targets.SceneColor->GetWidth(),
@@ -984,7 +985,7 @@ void UEditorEngine::RenderFrame(FEditorViewportClient *ViewClient,
 		const bool bDrawSelectedLight = bIsActiveViewport && Gizmo->GetTarget() &&
 			(Cast<ASpotLight>(Gizmo->GetTarget()->GetOwner()) ||
 			 Cast<APointLightActor>(Gizmo->GetTarget()->GetOwner()));
-		if (SettingsPanel->GetSettings().bDrawBatchLine || bDrawSelectedLight)
+		if (SettingsPanel->GetSettings().bDrawBatchLine || bDrawSelectedLight) 
 		{
 			Overlays.EditorLines = [this, &SceneView, bDrawSelectedLight]
 				{

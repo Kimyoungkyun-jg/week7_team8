@@ -20,6 +20,7 @@ struct FMeshDrawBatch
 		UTexture2D* Texture = nullptr;
 		EShaderBindFlagBits Stages = EShaderBindFlagBits::Pixel;
 	};
+
 	struct FItem
 	{
 		std::array<uint8, sizeof(FForwardObjectConstants)> ObjectData{};
@@ -32,8 +33,10 @@ struct FMeshDrawBatch
 	};
 
 	FPipelineState Pipeline;
+
 	FVertexBuffer* VertexBuffer = nullptr;
 	FIndexBuffer* IndexBuffer = nullptr;
+
 	std::vector<FTextureBinding> Textures;
 	ESamplerState Sampler = ESamplerState::LinearClamp;
 	EShaderBindFlagBits SamplerStages = EShaderBindFlagBits::Pixel;

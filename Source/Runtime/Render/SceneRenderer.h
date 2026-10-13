@@ -10,7 +10,6 @@
 class UWorld;
 class FScene;
 class FRenderer;
-class FSceneLightResources;
 class FConstantBuffer;
 class FTexture2D;
 class FSkyboxRenderer;
@@ -29,7 +28,7 @@ struct FSceneOverlayCallbacks
 	std::function<void()> EditorUUID;
 };
 
-struct FScenePassCallbacks
+struct FScenePassCallbacks // 기본 도형 다 그려진 후 그려져야 될 목록들
 {
 	std::function<void()> FireBall;
 	std::function<bool()> HeightFog;
@@ -52,7 +51,7 @@ public:
 	FSceneRenderer& operator=(const FSceneRenderer&) = delete;
 
 	// 가시성 검사 및 렌더 큐 수집
-	void InitViews(FRenderer* Renderer, FSceneLightResources* Resources,
+	void InitViews(FRenderer* Renderer,
 		const FAmbientLightRenderData& AmbientLight, bool bUseSkyLight = true);
 
 	// 뷰 결과를 하나 유지하는 벤치마크에서도 사용한다.
@@ -80,7 +79,7 @@ public:
 private:
 	bool AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Renderer, FSceneViewTargets& Targets,
 		const FSceneRenderOptions& Options, FSkyboxRenderer* Skybox);
-	bool BindDeferredLighting(FRenderer* Renderer, uint32 Width, uint32 Height, bool bAdditive);
+	bool BindDeferredLighting(FRenderer* Renderer, uint32 Width, uint32 Height);
 	bool BindForwardLighting(FRenderer* Renderer, const FSceneRenderOptions& Options);
 	void UnbindForwardLighting(FRenderer* Renderer);
 	bool IntersectSphereFrustum(const FVector4& PositionRadius, const FPlane (&Planes)[6]) const;
@@ -88,7 +87,6 @@ private:
 	UWorld* World = nullptr;
 	FSceneView View;
 	FSceneRenderData& RenderData;
-	FSceneLightResources* LightResources = nullptr;
 	uint32 LightCounts[4]{};
 	uint32 LightOffsets[4]{};
 	bool bLightUploadSucceeded = false;

@@ -19,7 +19,7 @@ cbuffer DeferredLightConstants : register(b0)
     matrix InverseViewProjection;
     float4 CameraPosition; // W: 원근 투영 여부
     float4 CameraForward;
-    float4 ViewportPass; // xy: 뷰포트 크기, w: 로컬 라이트 가산 패스 여부
+    float4 ViewportSize; // xy: 뷰포트 크기
     float4 AmbientColorIntensity;
     uint4 LightCounts; // x: 포인트 개수, y: 스포트 개수, z: 방향광 개수
     uint4 LightOffsets; // SceneLights에서 각 종류가 시작되는 위치, 순서는 위와 같음
@@ -41,6 +41,26 @@ FPSInput mainVS(uint VertexID : SV_VertexID)
     return Output;
 }
 
+void AccumulateLocalLight(inout float3 Diffuse, inout float3 Specular,
+    float3 Albedo, float Metallic, float Roughness,
+    float3 N, float3 V, float3 L, float3 Radiance)
+{
+    float NdotL = saturate(dot(N, L));
+    if (NdotL <= 0.0f) return;
+
+    Diffuse += Albedo * (1.0f - saturate(Metallic)) * Radiance * NdotL;
+
+    float3 H = L + V;
+    float HLengthSquared = dot(H, H);
+    if (HLengthSquared <= 1.0e-8f) return;
+    H *= rsqrt(HLengthSquared);
+
+    float3 F0 = lerp(float3(0.04f, 0.04f, 0.04f), Albedo, saturate(Metallic));
+    float Gloss = 1.0f - saturate(Roughness);
+    float Shininess = lerp(2.0f, 128.0f, Gloss * Gloss);
+    Specular += F0 * Radiance * pow(saturate(dot(N, H)), Shininess) * NdotL;
+}
+
 float4 mainPS(FPSInput Input) : SV_Target
 {
     int2 Pixel = int2(Input.Position.xy);
@@ -55,27 +75,26 @@ float4 mainPS(FPSInput Input) : SV_Target
     float Roughness = NormalData.a;
     float3 N = NormalData.xyz * rsqrt(max(dot(NormalData.xyz, NormalData.xyz), 1.0e-8f));
     
-    // 첫 드로우는 기본 조명을 HDR에 쓰고, 두 번째 드로우는 로컬 라이트를 더한다.
-    if (ViewportPass.w < 0.5f)
+    float3 AmbientColor = AmbientColorIntensity.rgb * max(AmbientColorIntensity.a, 0.0f);
+    float3 BaseLighting = AmbientColor;
+    if (SkyColorIntensity.a > 0.0f)
+        BaseLighting += SkyIrradiance.SampleLevel(SkySampler, N, 0).rgb *
+            SkyColorIntensity.rgb * SkyColorIntensity.a;
+    [loop]
+    for (uint DirectionalIndex = 0; DirectionalIndex < LightCounts.z; ++DirectionalIndex)
     {
-        float3 AmbientColor = AmbientColorIntensity.rgb * max(AmbientColorIntensity.a, 0.0f);
-        float3 Lighting = AmbientColor;
-        if (SkyColorIntensity.a > 0.0f)
-            Lighting += SkyIrradiance.SampleLevel(SkySampler, N, 0).rgb *
-                SkyColorIntensity.rgb * SkyColorIntensity.a;
-        [loop]
-        for (uint DirectionalIndex = 0; DirectionalIndex < LightCounts.z; ++DirectionalIndex)
-        {
-            FSceneLightRenderInfo Light = SceneLights[LightOffsets.z + DirectionalIndex];
-            if (Light.ColorIntensity.w <= 0.0f) continue;
-            float3 LightDir = normalize(Light.PositionRadius.xyz);
-            float3 LightColor = Light.ColorIntensity.rgb * Light.ColorIntensity.w;
-            Lighting += LightColor * saturate(dot(N, -LightDir));
-        }
-        return float4(Albedo * Lighting, 1.0f);
+        FSceneLightRenderInfo Light = SceneLights[LightOffsets.z + DirectionalIndex];
+        if (Light.ColorIntensity.w <= 0.0f) continue;
+        float3 LightDir = normalize(Light.PositionRadius.xyz);
+        float3 LightColor = Light.ColorIntensity.rgb * Light.ColorIntensity.w;
+        BaseLighting += LightColor * saturate(dot(N, -LightDir));
     }
-    
-    float2 UV = (float2(Pixel) + 0.5f) / ViewportPass.xy;
+
+    float3 Lighting = Albedo * BaseLighting;
+    if (LightCounts.x == 0 && LightCounts.y == 0)
+        return float4(Lighting, 1.0f);
+
+    float2 UV = (float2(Pixel) + 0.5f) / ViewportSize.xy;
     float2 NDC = float2(UV.x * 2.0f - 1.0f, 1.0f - UV.y * 2.0f);
     float4 WorldH = mul(float4(NDC, Depth, 1.0f), InverseViewProjection);
     if (!isfinite(WorldH.w) || abs(WorldH.w) < 1.0e-6f)
@@ -86,7 +105,8 @@ float4 mainPS(FPSInput Input) : SV_Target
         ? CameraPosition.xyz - WorldPosition : -CameraForward.xyz;
     float3 V = ToCamera * rsqrt(max(dot(ToCamera, ToCamera), 1.0e-8f));
 
-    float3 LocalLighting = 0.0f;
+    float3 LocalDiffuse = 0.0f;
+    float3 LocalSpecular = 0.0f;
 
     [loop]
     for (uint PointIndex = 0; PointIndex < LightCounts.x; ++PointIndex)
@@ -96,7 +116,7 @@ float4 mainPS(FPSInput Input) : SV_Target
         float DistanceSquared = dot(ToLight, ToLight);
         float RadiusSquared = Light.PositionRadius.w * Light.PositionRadius.w;
         
-            if (RadiusSquared <= 0.0f || DistanceSquared >= RadiusSquared || DistanceSquared < 1.0e-8f)
+        if (RadiusSquared <= 0.0f || DistanceSquared >= RadiusSquared || DistanceSquared < 1.0e-8f)
             continue;
 
         float Distance = sqrt(max(DistanceSquared, 1.0e-6f));
@@ -105,7 +125,9 @@ float4 mainPS(FPSInput Input) : SV_Target
         float x = Distance / Light.PositionRadius.w;
         float Attenuation = pow(saturate(1.0 - x), max(Light.Parameters.x, 0.0f));
         
-        LocalLighting += Light.ColorIntensity.xyz * (Attenuation * Light.ColorIntensity.w);
+        float3 Radiance = Light.ColorIntensity.rgb * max(Light.ColorIntensity.w, 0.0f) * Attenuation;
+        AccumulateLocalLight(LocalDiffuse, LocalSpecular,
+            Albedo, Metallic, Roughness, N, V, L, Radiance);
 
     }
 
@@ -125,13 +147,14 @@ float4 mainPS(FPSInput Input) : SV_Target
         float ConeFade = smoothstep(Light.DirectionOuterCos.w, Light.Parameters.x, ConeCos);
         float RadiusFade = pow(saturate(1.0f - Distance / Light.PositionRadius.w),
             max(Light.Parameters.y, 0.0f));
-        float NdotL = saturate(dot(N, L));
-        LocalLighting += Light.ColorIntensity.rgb * max(Light.ColorIntensity.w, 0.0f)
-            * ConeFade * RadiusFade * NdotL;
+        float3 Radiance = Light.ColorIntensity.rgb * max(Light.ColorIntensity.w, 0.0f)
+            * ConeFade * RadiusFade;
+        AccumulateLocalLight(LocalDiffuse, LocalSpecular,
+            Albedo, Metallic, Roughness, N, V, L, Radiance);
     }
     
     
-    return float4(LocalLighting, 0.0f);
+    return float4(Lighting + LocalDiffuse + LocalSpecular, 1.0f);
     
 }
 

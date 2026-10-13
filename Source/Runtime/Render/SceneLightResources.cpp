@@ -7,7 +7,7 @@
 namespace
 {
 	static_assert(sizeof(FPointLightRenderData) == 48);
-	static_assert(offsetof(FDeferredLightConstants, ViewportPass) == 96);
+	static_assert(offsetof(FDeferredLightConstants, ViewportSize) == 96);
 	static_assert(offsetof(FDeferredLightConstants, Ambient) == 112);
 	static_assert(offsetof(FDeferredLightConstants, LightCounts) == 128);
 	static_assert(offsetof(FDeferredLightConstants, LightOffsets) == 144);
@@ -17,32 +17,13 @@ namespace
 
 bool FSceneLightResources::Init()
 {
+	if (bInitialized) return true;
 	ForwardLightCB = RenderCommand::CreateConstantBuffer(sizeof(FForwardLightingConstants));
 	DeferredLightCB = RenderCommand::CreateConstantBuffer(sizeof(FDeferredLightConstants));
 	if (!ForwardClusterGrid.Init())
 		HTR_LOG(Warning, "Forward cluster compute shader unavailable");
-	return ForwardLightCB && DeferredLightCB;
-}
-
-void FSceneLightResources::PrepareSkyLight(const FSkyLightRenderData& SkyLight)
-{
-	if (SkyLight.SourcePath.empty() || Environments.contains(SkyLight.SourcePath)) return;
-	auto Environment = MakeUnique<FSkyLightEnvironment>();
-	Environment->Prepare(SkyLight.SourcePath);
-	Environments.emplace(SkyLight.SourcePath, std::move(Environment));
-}
-
-FSkyLightEnvironment* FSceneLightResources::FindPendingSkyLightEnvironment(const FString& SourcePath)
-{
-	const auto It = Environments.find(SourcePath);
-	return It != Environments.end() && It->second->IsPrepared() && !It->second->IsValid()
-		? It->second.get() : nullptr;
-}
-
-const FSkyLightEnvironment* FSceneLightResources::FindSkyLightEnvironment(const FString& SourcePath) const
-{
-	const auto It = Environments.find(SourcePath);
-	return It != Environments.end() && It->second->IsValid() ? It->second.get() : nullptr;
+	bInitialized = ForwardLightCB && DeferredLightCB;
+	return bInitialized;
 }
 
 bool FSceneLightResources::UploadViewLights(

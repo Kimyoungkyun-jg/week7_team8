@@ -95,6 +95,7 @@ namespace
 			}
 			else if (OverrideParams && OverrideSize <= Batch.MaterialData.size())
 			{
+				return false; 
 				std::memcpy(Batch.MaterialData.data(), OverrideParams, OverrideSize);
 				Batch.MaterialDataSize = OverrideSize;
 			}
@@ -160,11 +161,13 @@ bool FMeshPassProcessor::Build(const FSceneView& View, const FRenderQueue& Queue
 		for (const FSceneRenderData::FGatherChunk& Chunk : SceneData->GatherChunks)
 			for (const FStaticDrawGroup& Group : Chunk.Groups)
 				if (!Group.Items.empty()) Groups.push_back(&Group);
+		
 		std::sort(Groups.begin(), Groups.end(),
-			[](const FStaticDrawGroup* A, const FStaticDrawGroup* B) { return GroupKey(*A) < GroupKey(*B); });
+			[](const FStaticDrawGroup* A, const FStaticDrawGroup* B) { return GroupKey(*A) < GroupKey(*B); }); // 재질, 메시, LOD 순으로 정렬
+
 		for (const FStaticDrawGroup* Group : Groups)
 		{
-			FMeshDrawBatch Batch;
+			FMeshDrawBatch Batch; // Render에게 전달하는 최종 구조체
 			if (!BuildBatch(Batch, Group->Mesh, Group->LODIndex, Group->Material, Pass, View, LightingModel))
 				return false;
 			Batch.Items.reserve(Group->Items.size());
@@ -183,8 +186,10 @@ bool FMeshPassProcessor::Build(const FSceneView& View, const FRenderQueue& Queue
 		FMeshDrawBatch Batch;
 		if (!BuildBatch(Batch, Packet.Mesh, Packet.LODIndex, Packet.Material, Pass, View,
 			LightingModel, Packet.MaterialParamData, Packet.MaterialParamDataSize)) return false;
+		
 		const uint32 IndexCount = Packet.IndexCount ? Packet.IndexCount : Batch.IndexBuffer->GetIndexCount();
 		const void* ObjectKey = Packet.Proxy ? static_cast<const void*>(Packet.Proxy) : static_cast<const void*>(&Packet);
+		
 		Batch.Items.push_back(BuildItem(PacketWorld(Packet), View, Pass, Packet.Slot,
 			Packet.StartIndex, IndexCount, ObjectKey, Packet.bOccludedByGpu));
 		Out.push_back(std::move(Batch));

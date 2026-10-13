@@ -5,6 +5,7 @@
 #include "Engine/PrimitiveSceneProxy.h"
 #include "Engine/LightSceneProxy.h"
 #include "Render/LightRenderData.h"
+#include "Render/SceneLightResources.h"
 #include <algorithm>
 #include <iterator>
 #include <vector>
@@ -43,6 +44,7 @@ struct FSceneRenderData
 	TArray<FGatherChunk> GatherChunks;
 
 	TArray<FPerObjectConstants> ObjectConstants;
+	FSceneLightResources ViewLightResources;
 
 	FAmbientLightRenderData AmbientLight{ FVector4(0.5f, 0.5f, 0.5f, 1.0f) };
 	FSkyLightRenderData SkyLight{};

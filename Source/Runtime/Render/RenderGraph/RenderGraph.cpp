@@ -263,27 +263,32 @@ bool FRenderGraphBuilder::Execute()
 		if (Pass.bCompute)
 		{
 			RenderCommand::EndRenderPass();
-			UnbindConflictingViews(Context, Pass.ComputeDesc.ReadResources);
-			UnbindConflictingViews(Context, Pass.ComputeDesc.WriteResources);
-			Pass.Execute();
+			UnbindConflictingViews(Context, Pass.ComputeDesc.ReadResources); // 이전 패스에서 같은 리소스가 UAV(쓰기)로 묶여 있으면 해제
+			UnbindConflictingViews(Context, Pass.ComputeDesc.WriteResources); // 같은 리소스가 이전 패스의 SRV(읽기) 또는 UAV(쓰기)로 묶여 있으면 해제
+			Pass.Execute(); 
 			ID3D11UnorderedAccessView* NullUAVs[D3D11_PS_CS_UAV_REGISTER_COUNT]{};
 			Context->CSSetUnorderedAccessViews(0, D3D11_PS_CS_UAV_REGISTER_COUNT, NullUAVs, nullptr);
 			continue;
 		}
+
 		// 이전 패스의 출력 바인딩을 먼저 해제해야 입력 SRV로 사용할 수 있다.
 		RenderCommand::EndRenderPass();
 		std::vector<ID3D11Resource*> Outputs;
 		FTexture2D* ColorTargets[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT]{};
+
 		for (uint32 Index = 0; Index < Pass.Desc.ColorAttachments.size(); ++Index)
 		{
 			FTexture2D* Texture = Resolve(Pass.Desc.ColorAttachments[Index].Texture);
 			ColorTargets[Index] = Texture;
 			if (Texture) Outputs.push_back(Texture->GetRawPtr());
 		}
+
 		FTexture2D* Depth = Pass.Desc.DepthAttachment.Texture
 			? Resolve(Pass.Desc.DepthAttachment.Texture) : nullptr;
+
 		if (Depth) Outputs.push_back(Depth->GetRawPtr());
 		UnbindConflictingViews(Context, Outputs);
+		
 		for (uint32 Index = 0; Index < Pass.Desc.ColorAttachments.size(); ++Index)
 		{
 			const FRenderGraphColorAttachment& Attachment = Pass.Desc.ColorAttachments[Index];
@@ -294,11 +299,11 @@ bool FRenderGraphBuilder::Execute()
 				RenderCommand::ClearRenderTarget(ColorTargets[Index], Color);
 			}
 		}
+
 		if (Depth && Pass.Desc.DepthAttachment.LoadAction == ERenderGraphLoadAction::Clear)
-			RenderCommand::ClearDepthStencil(Depth, Pass.Desc.DepthAttachment.ClearDepth,
-				Pass.Desc.DepthAttachment.ClearStencil);
-		RenderCommand::SetRenderTargets(static_cast<uint32>(Pass.Desc.ColorAttachments.size()),
-			ColorTargets, Depth);
+			RenderCommand::ClearDepthStencil(Depth, Pass.Desc.DepthAttachment.ClearDepth, Pass.Desc.DepthAttachment.ClearStencil);
+		
+		RenderCommand::SetRenderTargets(static_cast<uint32>(Pass.Desc.ColorAttachments.size()), ColorTargets, Depth);
 		RenderCommand::SetViewport(0, 0, Pass.Width, Pass.Height);
 		Pass.Execute();
 		RenderCommand::EndRenderPass();

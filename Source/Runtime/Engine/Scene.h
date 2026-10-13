@@ -5,6 +5,9 @@
 #include "Component/PrimitiveComponent.h"
 #include "Math/Frustum.h"
 #include "Math/BVH.h"
+#include "Render/LightRenderData.h"
+#include "Render/SkyLightEnvironment.h"
+#include <unordered_map>
 
 class FScene
 {
@@ -28,6 +31,9 @@ public:
 	const TArray<class FSpotLightSceneProxy*>& GetSpotLights() const { return SpotLights; }
 	const TArray<class FSkyLightSceneProxy*>& GetSkyLights() const { return SkyLights; }
 	const class FSkyLightSceneProxy* GetActiveSkyLight(bool bGameView) const;
+	void PrepareSkyLight(const FSkyLightRenderData& SkyLight);
+	const FSkyLightEnvironment* FindSkyLightEnvironment(const FString& SourcePath) const;
+	FSkyLightEnvironment* FindPendingSkyLightEnvironment(const FString& SourcePath);
 
 	void UpdateAllTransforms();
 
@@ -57,5 +63,6 @@ public:
 	};
 	bool bElementListChanged = false;
 
-
+private:
+	std::unordered_map<FString, TUniquePtr<FSkyLightEnvironment>> SkyLightEnvironments;
 };

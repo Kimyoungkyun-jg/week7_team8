@@ -25,14 +25,14 @@ enum class ERenderGraphLoadAction : uint8
 	Clear,
 };
 
-struct FRenderGraphColorAttachment
+struct FRenderGraphColorAttachment // 패스에 필요한 ColorTextrue 핸들
 {
 	FRenderGraphTextureRef Texture;
 	ERenderGraphLoadAction LoadAction = ERenderGraphLoadAction::Load;
 	std::array<float, 4> ClearColor{ 0.0f, 0.0f, 0.0f, 1.0f };
 };
 
-struct FRenderGraphDepthAttachment
+struct FRenderGraphDepthAttachment // 패스에 필요한 DepthTextrue 핸들
 {
 	FRenderGraphTextureRef Texture;
 	ERenderGraphLoadAction LoadAction = ERenderGraphLoadAction::Load;
@@ -40,7 +40,7 @@ struct FRenderGraphDepthAttachment
 	uint8 ClearStencil = 0;
 };
 
-struct FRenderGraphRasterPassDesc
+struct FRenderGraphRasterPassDesc // draw pass용
 {
 	std::string Name;
 	std::vector<FRenderGraphTextureRef> ReadTextures;
@@ -50,7 +50,7 @@ struct FRenderGraphRasterPassDesc
 	uint32 Height = 0;
 };
 
-struct FRenderGraphComputePassDesc
+struct FRenderGraphComputePassDesc // compute pass용
 {
 	std::string Name;
 	std::vector<ID3D11Resource*> ReadResources;

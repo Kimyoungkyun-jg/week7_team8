@@ -19,6 +19,28 @@
 DECLARE_CYCLE_STAT("Frustum Cull", STAT_FrustumCull);
 DECLARE_CYCLE_STAT("Gather Elements", STAT_GatherElements);
 
+namespace
+{
+	FRenderGraphRasterPassDesc MakeViewportPass(const std::string& Name, FRenderGraphTextureRef Color,
+		FRenderGraphTextureRef DepthTarget = {},
+		ERenderGraphLoadAction DepthLoad = ERenderGraphLoadAction::Load)
+	{
+		FRenderGraphRasterPassDesc Pass{};
+		Pass.Name = Name;
+		Pass.ColorAttachments = { { Color, ERenderGraphLoadAction::Load } };
+		if (DepthTarget) Pass.DepthAttachment = { DepthTarget, DepthLoad, 1.0f, 0 };
+		return Pass;
+	}
+
+	bool AddOverlayPass(FRenderGraphBuilder& Graph, const char* Name,
+		FRenderGraphTextureRef Color, FRenderGraphTextureRef Depth,
+		const std::function<void()>& Draw,
+		ERenderGraphLoadAction DepthLoad = ERenderGraphLoadAction::Load)
+	{
+		return !Draw || Graph.AddRasterPass(MakeViewportPass(Name, Color, Depth, DepthLoad), Draw);
+	}
+}
+
 // 생성자
 FSceneRenderer::FSceneRenderer(UWorld* InWorld, const FSceneView& InView, FSceneRenderData& InRenderData)
 	: World(InWorld), View(InView), RenderData(InRenderData)
@@ -45,11 +67,10 @@ bool FSceneRenderer::IntersectSphereFrustum(const FVector4& PositionRadius, cons
 }
 
 // 가시성 검사 및 렌더 큐 수집
-void FSceneRenderer::InitViews(FRenderer* Renderer, FSceneLightResources* InResources,
+void FSceneRenderer::InitViews(FRenderer* Renderer,
 	const FAmbientLightRenderData& AmbientLight,
 	bool bUseSkyLight)
 {
-	LightResources = InResources;
 	bLightUploadSucceeded = false;
 	if (!World)
 	{
@@ -60,13 +81,13 @@ void FSceneRenderer::InitViews(FRenderer* Renderer, FSceneLightResources* InReso
 	// 월드 프리미티브 수집 및 절두체 컬링
 	GatherRenderPackets(World->GetScene(), RenderData, CachedViewContext, &View.Frustum, Renderer);
 	RenderData.AmbientLight = AmbientLight;
-	if (LightResources && bUseSkyLight)
+	if (bUseSkyLight)
 	{
 		if (const FSkyLightSceneProxy* SkyLight = World->GetScene().GetActiveSkyLight(View.bGameView))
 		{
 			RenderData.SkyLight = SkyLight->GetRenderData();
 			RenderData.bHasSkyLight = true;
-			LightResources->PrepareSkyLight(RenderData.SkyLight);
+			World->GetScene().PrepareSkyLight(RenderData.SkyLight);
 		}
 	}
 
@@ -95,32 +116,35 @@ void FSceneRenderer::InitViews(FRenderer* Renderer, FSceneLightResources* InReso
 		//if (!IntersectSphereFrustum(Data.PositionRadius, View.Frustum.Planes)) continue;
 		RenderData.VisibleSpotLights.Add(Data);
 	}
-	if (LightResources)
-		bLightUploadSucceeded = LightResources->UploadViewLights(
+	if (RenderData.ViewLightResources.Init())
+		bLightUploadSucceeded = RenderData.ViewLightResources.UploadViewLights(
 			RenderData.VisibleDirectionalLights, RenderData.VisiblePointLights,
 			RenderData.VisibleSpotLights, LightCounts, LightOffsets);
 }
 
-bool FSceneRenderer::BindDeferredLighting(FRenderer* Renderer, uint32 Width, uint32 Height, bool bAdditive)
+bool FSceneRenderer::BindDeferredLighting(FRenderer* Renderer, uint32 Width, uint32 Height)
 {
-	if (!LightResources || !bLightUploadSucceeded || !LightResources->GetDeferredConstants()) return false;
+	FSceneLightResources& LightResources = RenderData.ViewLightResources;
+	if (!bLightUploadSucceeded || !LightResources.GetDeferredConstants()) return false;
+	
 	FDeferredLightConstants Constants{};
 	Constants.InverseViewProjection = View.ViewProjectionMatrix.Inverse();
 	Constants.CameraPosition = FVector4(View.ViewLocation.X, View.ViewLocation.Y,
 		View.ViewLocation.Z, View.bIsPerspective ? 1.0f : 0.0f);
 	Constants.CameraForward = FVector4(View.ViewForward.X, View.ViewForward.Y, View.ViewForward.Z, 0.0f);
-	const FSkyLightEnvironment* Sky = RenderData.bHasSkyLight
-		? LightResources->FindSkyLightEnvironment(RenderData.SkyLight.SourcePath) : nullptr;
-	Constants.Ambient = Sky ? FAmbientLightRenderData{ FVector4(0.0f) } : RenderData.AmbientLight;
+	
+	const FSkyLightEnvironment* Sky = RenderData.bHasSkyLight ? World->GetScene().FindSkyLightEnvironment(RenderData.SkyLight.SourcePath) : nullptr;
+	Constants.Ambient = Sky ? FAmbientLightRenderData{ FVector4(0.0f) } : RenderData.AmbientLight; // 지금 환경광 계산이 ambient + skylight로 되어있어서 sky 잇으면 ambient 0으로 해줘야됨
+	
 	if (Sky) Constants.SkyColorIntensity = RenderData.SkyLight.ColorIntensity;
+	
 	std::memcpy(Constants.LightCounts, LightCounts, sizeof(LightCounts));
-	std::memcpy(Constants.LightOffsets, LightOffsets, sizeof(LightOffsets));
-	Constants.ViewportPass = FVector4(static_cast<float>(Width), static_cast<float>(Height),
-		0.0f, bAdditive ? 1.0f : 0.0f);
-	Renderer->UpdateConstant(LightResources->GetDeferredConstants(), &Constants, sizeof(Constants));
-	Renderer->BindConstant(0, LightResources->GetDeferredConstants(), EShaderBindFlagBits::Pixel);
-	Renderer->BindStructured(3, LightCounts[0] || LightCounts[1] || LightCounts[2]
-		? LightResources->GetSceneLights() : nullptr, EShaderBindFlagBits::Pixel);
+	std::memcpy(Constants.LightOffsets, LightOffsets, sizeof(LightOffsets)); // LightOffset은 각 조명별로 시작하는 위치
+	
+	Constants.ViewportSize = FVector4(static_cast<float>(Width), static_cast<float>(Height), 0.0f, 0.0f);
+	Renderer->UpdateConstant(LightResources.GetDeferredConstants(), &Constants, sizeof(Constants));
+	Renderer->BindConstant(0, LightResources.GetDeferredConstants(), EShaderBindFlagBits::Pixel);
+	Renderer->BindStructured(3, LightCounts[0] || LightCounts[1] || LightCounts[2] ? LightResources.GetSceneLights() : nullptr, EShaderBindFlagBits::Pixel);
 	Renderer->BindCube(4, Sky ? Sky->GetIrradianceCube() : nullptr, EShaderBindFlagBits::Pixel);
 	Renderer->BindSampler(1, ESamplerState::LinearClamp, EShaderBindFlagBits::Pixel);
 	return true;
@@ -128,34 +152,39 @@ bool FSceneRenderer::BindDeferredLighting(FRenderer* Renderer, uint32 Width, uin
 
 bool FSceneRenderer::BindForwardLighting(FRenderer* Renderer, const FSceneRenderOptions& Options)
 {
-	if (!LightResources || !bLightUploadSucceeded || !LightResources->GetForwardConstants()) return false;
+	FSceneLightResources& LightResources = RenderData.ViewLightResources;
+	if (!bLightUploadSucceeded || !LightResources.GetForwardConstants()) return false;
+	
 	FPipelineState* BasePSO = FRenderResourceManager::GetPSO(EPSOType::StaticMesh_Forward);
 	FShaderProgram* Program = FRenderResourceManager::GetForwardShaderProgram(Options.LightingModel);
+	
 	if (!BasePSO || !Program) return false;
 	FForwardLightingConstants Constants{};
-	const FSkyLightEnvironment* Sky = RenderData.bHasSkyLight
-		? LightResources->FindSkyLightEnvironment(RenderData.SkyLight.SourcePath) : nullptr;
+	
+	const FSkyLightEnvironment* Sky = RenderData.bHasSkyLight ? World->GetScene().FindSkyLightEnvironment(RenderData.SkyLight.SourcePath) : nullptr;
 	Constants.Ambient = Sky ? FAmbientLightRenderData{ FVector4(0.0f) } : RenderData.AmbientLight;
+	
 	if (Sky) Constants.SkyColorIntensity = RenderData.SkyLight.ColorIntensity;
 	Constants.CameraPosition = FVector4(View.ViewLocation.X, View.ViewLocation.Y, View.ViewLocation.Z, 1.0f);
+	
 	std::memcpy(Constants.LightCounts, LightCounts, sizeof(LightCounts));
 	std::memcpy(Constants.LightOffsets, LightOffsets, sizeof(LightOffsets));
-	Renderer->UpdateConstant(LightResources->GetForwardConstants(), &Constants, sizeof(Constants));
-	Renderer->BindConstant(1, LightResources->GetForwardConstants(),
-		EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
-	Renderer->BindCube(11, Sky ? Sky->GetIrradianceCube() : nullptr,
-		EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
-	Renderer->BindSampler(1, ESamplerState::LinearClamp,
-		EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
-	FForwardLightClusterGrid& Clusters = LightResources->GetClusters();
+	
+	Renderer->UpdateConstant(LightResources.GetForwardConstants(), &Constants, sizeof(Constants));
+	Renderer->BindConstant(1, LightResources.GetForwardConstants(), EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
+	Renderer->BindCube(11, Sky ? Sky->GetIrradianceCube() : nullptr, EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
+	Renderer->BindSampler(1, ESamplerState::LinearClamp, EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
+	
+	FForwardLightClusterGrid& Clusters = LightResources.GetClusters();
 	Clusters.PreparePixelShader(View, Constants, bClustersBuilt);
+	
 	Renderer->BindRawPixelConstant(3, Clusters.GetPixelConstants());
-	const std::array<ID3D11ShaderResourceView*, 2> ClusterSRVs =
-		{ Clusters.GetCountsSRV(), Clusters.GetIndicesSRV() };
+	const std::array<ID3D11ShaderResourceView*, 2> ClusterSRVs = { Clusters.GetCountsSRV(), Clusters.GetIndicesSRV() };
 	Renderer->BindRawPixelResources(9, ClusterSRVs);
+	
 	Renderer->BindStructured(8, (LightCounts[0] || LightCounts[1] || LightCounts[2]) &&
-		LightResources->GetSceneLights() && LightResources->GetSceneLights()->GetSRV()
-		? LightResources->GetSceneLights() : nullptr,
+		LightResources.GetSceneLights() && LightResources.GetSceneLights()->GetSRV()
+		? LightResources.GetSceneLights() : nullptr,
 		EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
 	return true;
 }
@@ -165,7 +194,7 @@ void FSceneRenderer::UnbindForwardLighting(FRenderer* Renderer)
 	const std::array<ID3D11ShaderResourceView*, 2> NullSRVs{};
 	Renderer->BindRawPixelResources(9, NullSRVs);
 	Renderer->BindRawPixelConstant(3, nullptr);
-	LightResources->GetClusters().ResetPixelState();
+	RenderData.ViewLightResources.GetClusters().ResetPixelState();
 	Renderer->UnbindResources(8, 1, EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
 	Renderer->UnbindResources(11, 1, EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
 }
@@ -173,7 +202,7 @@ void FSceneRenderer::UnbindForwardLighting(FRenderer* Renderer)
 bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Renderer, FSceneViewTargets& Targets,
 	const FSceneRenderOptions& Options, FSkyboxRenderer* Skybox)
 {
-	if (!World || !Renderer || !LightResources || !Targets.SceneColor || !Targets.Depth)
+	if (!World || !Renderer || !Targets.SceneColor || !Targets.Depth)
 		return false;
 	const uint32 Width = Targets.SceneColor->GetWidth();
 	const uint32 Height = Targets.SceneColor->GetHeight();
@@ -185,16 +214,17 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 	NormalRoughnessRef = {};
 	if (RenderData.bHasSkyLight)
 	{
-		if (FSkyLightEnvironment* Pending = LightResources->FindPendingSkyLightEnvironment(RenderData.SkyLight.SourcePath))
+		if (FSkyLightEnvironment* Pending = World->GetScene().FindPendingSkyLightEnvironment(RenderData.SkyLight.SourcePath))
 		{
-			FRenderGraphComputePassDesc Environment{};
+			FRenderGraphComputePassDesc Environment{}; 
 			Environment.Name = "BuildSkyEnvironment";
 			Environment.ReadResources = { Pending->GetPanoramaResource() };
 			Environment.WriteResources = { Pending->GetEnvironmentResource() };
 			if (!Graph.AddComputePass(std::move(Environment), [Pending, Renderer]
 				{
 					Pending->DispatchEnvironment(Renderer);
-				})) return false;
+				})) return false; // 먼저 SkySphere를 바탕으로 Cubemap 생성, 나중에 물체에 반사광 띄우려면 이거 필요
+
 			FRenderGraphComputePassDesc Irradiance{};
 			Irradiance.Name = "BuildSkyIrradiance";
 			Irradiance.ReadResources = { Pending->GetEnvironmentResource() };
@@ -203,25 +233,25 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 				{
 					Pending->DispatchIrradiance(Renderer);
 					Pending->Complete();
-				})) return false;
+				})) return false; // Sky Cubemap 바탕으로 SkyIrradiance cubemap 생성
 		}
 	}
 
-	const auto SceneColor = Graph.ImportTexture(Targets.SceneColor.get(), "SceneColor");
-	const auto Depth = Graph.ImportTexture(Targets.Depth.get(), "SceneDepth");
+	const FRenderGraphTextureRef SceneColor = Graph.ImportTexture(Targets.SceneColor.get(), "SceneColor"); // Texture Handle 리턴 해줌
+	const FRenderGraphTextureRef Depth = Graph.ImportTexture(Targets.Depth.get(), "SceneDepth");
 	if (!SceneColor || !Depth)
 		return false;
 
 	const FRenderGraphTextureDesc HDRDesc{ Width, Height, DXGI_FORMAT_R16G16B16A16_FLOAT };
-	const auto LightingHDR = Graph.CreateTexture(HDRDesc, "LightingHDR");
+	const FRenderGraphTextureRef LightingHDR = Graph.CreateTexture(HDRDesc, "LightingHDR");
 	if (!LightingHDR)
 		return false;
 
-	if (Options.RenderingPath == ERenderingPath::Deferred)
+	if (Options.RenderingPath == ERenderingPath::Deferred) // Deferred rendering
 	{
 		const FRenderGraphTextureDesc GBufferDesc{ Width, Height, DXGI_FORMAT_R8G8B8A8_UNORM };
-		const auto BaseColor = Graph.CreateTexture(GBufferDesc, "BaseColorMetallic");
-		const auto Normal = Graph.CreateTexture(HDRDesc, "NormalRoughness");
+		const FRenderGraphTextureRef BaseColor = Graph.CreateTexture(GBufferDesc, "BaseColorMetallic"); // 임시 텍스쳐 생성
+		const FRenderGraphTextureRef Normal = Graph.CreateTexture(HDRDesc, "NormalRoughness");
 		if (!BaseColor || !Normal)
 			return false;
 		NormalRoughnessRef = Normal;
@@ -233,8 +263,11 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 			GBuffer.ColorAttachments = {
 				{ BaseColor, ERenderGraphLoadAction::Clear, { 0.0f, 0.0f, 0.0f, 0.0f } },
 				{ Normal, ERenderGraphLoadAction::Clear, { 0.0f, 0.0f, 0.0f, 0.0f } }
-			};
-			GBuffer.DepthAttachment = { Depth, ERenderGraphLoadAction::Clear, 1.0f, 0 };
+			}; // GBuffer Pass 에는 BaseColor 와 Normal Texture가 Clear된 상태로 필요하다
+
+			GBuffer.DepthAttachment = { Depth, ERenderGraphLoadAction::Clear, 1.0f, 0 }; // GBuffer Pass 에는 Depth Texture가 Clear된 상태로 필요하다
+			
+
 			if (!Graph.AddRasterPass(std::move(GBuffer), [this, Renderer]
 				{
 					PrepareDrawData(Renderer, RenderData);
@@ -258,7 +291,7 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 			if (!Graph.AddRasterPass(std::move(LightingPass), [this, Renderer, &Graph, BaseColor, Normal, Depth, Width, Height]
 				{
 					if (!bCorePassSucceeded) return;
-					if (!BindDeferredLighting(Renderer, Width, Height, false))
+					if (!BindDeferredLighting(Renderer, Width, Height))
 					{
 						bCorePassSucceeded = false;
 						return;
@@ -272,30 +305,6 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 						bCorePassSucceeded = false;
 					Renderer->UnbindResources(3, 2, EShaderBindFlagBits::Pixel);
 				})) return false;
-			if (!RenderData.VisiblePointLights.IsEmpty() || !RenderData.VisibleSpotLights.IsEmpty())
-			{
-				FRenderGraphRasterPassDesc Additive{};
-				Additive.Name = "DeferredLocalLights";
-				Additive.ReadTextures = { BaseColor, Normal, Depth };
-				Additive.ColorAttachments = { { LightingHDR, ERenderGraphLoadAction::Load } };
-				if (!Graph.AddRasterPass(std::move(Additive), [this, Renderer, &Graph, BaseColor, Normal, Depth, Width, Height]
-					{
-						if (!bCorePassSucceeded) return;
-						if (!BindDeferredLighting(Renderer, Width, Height, true))
-						{
-							bCorePassSucceeded = false;
-							return;
-						}
-						if (FPipelineState* Pipeline = FRenderResourceManager::GetPSO(EPSOType::DeferredPointLighting);
-							Pipeline && Pipeline->Shader && Pipeline->Shader->VertexShader && Pipeline->Shader->PixelShader)
-						{
-							const std::array<FTexture2D*, 3> Textures =
-								{ Graph.Resolve(BaseColor), Graph.Resolve(Normal), Graph.Resolve(Depth) };
-							Renderer->DrawFullscreen(*Pipeline, Textures);
-						}
-						Renderer->UnbindResources(3, 2, EShaderBindFlagBits::Pixel);
-					})) return false;
-			}
 		}
 		else
 		{
@@ -305,7 +314,7 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 			if (!Graph.AddRasterPass(std::move(ClearDepth), [] {})) return false;
 		}
 	}
-	else
+	else // Forward Rendering
 	{
 		if (Options.bDrawPrimitives && bLightUploadSucceeded &&
 			Options.bEnableClusteredLightCulling && Options.LightingModel != ELightingModel::Gouraud &&
@@ -316,8 +325,8 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 				View.ViewLocation.Z, 1.0f);
 			std::memcpy(ClusterLighting.LightCounts, LightCounts, sizeof(LightCounts));
 			std::memcpy(ClusterLighting.LightOffsets, LightOffsets, sizeof(LightOffsets));
-			FForwardLightClusterGrid& Grid = LightResources->GetClusters();
-			FStructuredBuffer* SceneLights = LightResources->GetSceneLights();
+			FForwardLightClusterGrid& Grid = RenderData.ViewLightResources.GetClusters();
+			FStructuredBuffer* SceneLights = RenderData.ViewLightResources.GetSceneLights();
 			if (Grid.PrepareBuild(View, ClusterLighting, SceneLights))
 			{
 				FRenderGraphComputePassDesc ClusterPass{};
@@ -326,7 +335,7 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 				ClusterPass.WriteResources = { Grid.GetCountsResource(), Grid.GetIndicesResource() };
 				if (!Graph.AddComputePass(std::move(ClusterPass), [this, Renderer, SceneLights]
 					{
-						LightResources->GetClusters().ExecuteBuild(Renderer, SceneLights);
+						RenderData.ViewLightResources.GetClusters().ExecuteBuild(Renderer, SceneLights);
 						bClustersBuilt = true;
 					})) return false;
 			}
@@ -343,7 +352,9 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 			Forward.ColorAttachments.push_back(
 				{ Normal, ERenderGraphLoadAction::Clear, { 0.0f, 0.0f, 0.0f, 1.0f } });
 		}
+		
 		Forward.DepthAttachment = { Depth, ERenderGraphLoadAction::Clear, 1.0f, 0 };
+		
 		if (!Graph.AddRasterPass(std::move(Forward), [this, Renderer, &Options]
 			{
 				if (!Options.bDrawPrimitives) return;
@@ -398,33 +409,24 @@ bool FSceneRenderer::AddViewportPasses(FRenderGraphBuilder& Graph, FRenderer* Re
 	FSceneViewTargets& Targets, const FSceneRenderOptions& Options, FSkyboxRenderer* Skybox,
 	const FScenePassCallbacks& Callbacks)
 {
-	if (!AddCorePasses(Graph, Renderer, Targets, Options, Skybox)) return false;
-	const auto SceneColor = Graph.ImportTexture(Targets.SceneColor.get(), "SceneColor");
-	const auto Depth = Graph.ImportTexture(Targets.Depth.get(), "SceneDepth");
+	if (!AddCorePasses(Graph, Renderer, Targets, Options, Skybox)) // 기본적으로 그려져야 되는 Core Pass 들
+		return false;
+	
+	const FRenderGraphTextureRef SceneColor = Graph.ImportTexture(Targets.SceneColor.get(), "SceneColor");
+	const FRenderGraphTextureRef Depth = Graph.ImportTexture(Targets.Depth.get(), "SceneDepth");
 	if (!SceneColor || !Depth) return false;
 	bHasFog = false;
 	bFXAAPassSucceeded = true;
 
-	const auto MakeViewportPass = [](const std::string& Name, FRenderGraphTextureRef Color,
-		FRenderGraphTextureRef DepthTarget = {},
-		ERenderGraphLoadAction DepthLoad = ERenderGraphLoadAction::Load)
-	{
-		FRenderGraphRasterPassDesc Pass{};
-		Pass.Name = Name;
-		Pass.ColorAttachments = { { Color, ERenderGraphLoadAction::Load } };
-		if (DepthTarget) Pass.DepthAttachment = { DepthTarget, DepthLoad, 1.0f, 0 };
-		return Pass;
-	};
-
 	if (Options.bDrawPrimitives && Callbacks.FireBall)
 	{
-		auto Pass = MakeViewportPass("FireBall", SceneColor);
+		FRenderGraphRasterPassDesc Pass = MakeViewportPass("FireBall", SceneColor);
 		Pass.ReadTextures = { Depth };
 		if (!Graph.AddRasterPass(std::move(Pass), Callbacks.FireBall)) return false;
 	}
 	if (Options.bDrawPrimitives && Options.bEnableFog && Callbacks.HeightFog)
 	{
-		auto Pass = MakeViewportPass("HeightFog", SceneColor);
+		FRenderGraphRasterPassDesc Pass = MakeViewportPass("HeightFog", SceneColor);
 		Pass.ReadTextures = { Depth };
 		if (!Graph.AddRasterPass(std::move(Pass), [this, DrawFog = Callbacks.HeightFog]
 			{
@@ -445,13 +447,13 @@ bool FSceneRenderer::AddViewportPasses(FRenderGraphBuilder& Graph, FRenderer* Re
 
 	if (Options.bShowSceneDepth && Callbacks.DepthVisualization)
 	{
-		auto Pass = MakeViewportPass("SceneDepthVisualization", SceneColor);
+		FRenderGraphRasterPassDesc Pass = MakeViewportPass("SceneDepthVisualization", SceneColor);
 		Pass.ReadTextures = { Depth };
 		if (!Graph.AddRasterPass(std::move(Pass), Callbacks.DepthVisualization)) return false;
 	}
 	else if (Options.bShowWorldNormal && Callbacks.NormalVisualization)
 	{
-		auto Pass = MakeViewportPass("WorldNormalVisualization", SceneColor);
+		FRenderGraphRasterPassDesc Pass = MakeViewportPass("WorldNormalVisualization", SceneColor);
 		Pass.ReadTextures = { NormalRoughnessRef, Depth };
 		if (!Graph.AddRasterPass(std::move(Pass),
 			[&Graph, Normal = NormalRoughnessRef, DrawNormal = Callbacks.NormalVisualization]
@@ -465,7 +467,7 @@ bool FSceneRenderer::AddViewportPasses(FRenderGraphBuilder& Graph, FRenderer* Re
 	{
 		FinalColor = Graph.ImportTexture(Callbacks.FXAAOutput, "FXAAOutput");
 		if (!FinalColor) return false;
-		auto Pass = MakeViewportPass("FXAA", FinalColor);
+		FRenderGraphRasterPassDesc Pass = MakeViewportPass("FXAA", FinalColor);
 		Pass.ReadTextures = { SceneColor };
 		if (!Graph.AddRasterPass(std::move(Pass), [this, ApplyFXAA = Callbacks.FXAA]
 			{
@@ -473,18 +475,13 @@ bool FSceneRenderer::AddViewportPasses(FRenderGraphBuilder& Graph, FRenderer* Re
 			})) return false;
 	}
 
-	const auto AddOverlay = [&](const char* Name, const std::function<void()>& Draw,
-		ERenderGraphLoadAction DepthLoad = ERenderGraphLoadAction::Load)
-	{
-		return !Draw || Graph.AddRasterPass(MakeViewportPass(Name, FinalColor, Depth, DepthLoad), Draw);
-	};
 	const FSceneOverlayCallbacks& Overlay = Callbacks.Overlays;
-	if (!AddOverlay("EditorLines", Overlay.EditorLines) ||
-		!AddOverlay("EditorGrid", Overlay.EditorGrid) ||
-		!AddOverlay("EditorOutline", Overlay.EditorOutline) ||
-		!AddOverlay("EditorGizmo", Overlay.EditorGizmo, ERenderGraphLoadAction::Clear) ||
-		!AddOverlay("SIEOutline", Overlay.SIEOutline) ||
-		!AddOverlay("SIEGizmo", Overlay.SIEGizmo, ERenderGraphLoadAction::Clear))
+	if (!AddOverlayPass(Graph, "EditorLines", FinalColor, Depth, Overlay.EditorLines) ||
+		!AddOverlayPass(Graph, "EditorGrid", FinalColor, Depth, Overlay.EditorGrid) ||
+		!AddOverlayPass(Graph, "EditorOutline", FinalColor, Depth, Overlay.EditorOutline) ||
+		!AddOverlayPass(Graph, "EditorGizmo", FinalColor, Depth, Overlay.EditorGizmo, ERenderGraphLoadAction::Clear) ||
+		!AddOverlayPass(Graph, "SIEOutline", FinalColor, Depth, Overlay.SIEOutline) ||
+		!AddOverlayPass(Graph, "SIEGizmo", FinalColor, Depth, Overlay.SIEGizmo, ERenderGraphLoadAction::Clear))
 		return false;
 	if (Overlay.bClearEditorDepth)
 	{
@@ -493,7 +490,7 @@ bool FSceneRenderer::AddViewportPasses(FRenderGraphBuilder& Graph, FRenderer* Re
 		ClearDepth.DepthAttachment = { Depth, ERenderGraphLoadAction::Clear, 1.0f, 0 };
 		if (!Graph.AddRasterPass(std::move(ClearDepth), [] {})) return false;
 	}
-	if (!AddOverlay("EditorUUID", Overlay.EditorUUID)) return false;
+	if (!AddOverlayPass(Graph, "EditorUUID", FinalColor, Depth, Overlay.EditorUUID)) return false;
 	return true;
 }
 

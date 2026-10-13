@@ -94,6 +94,27 @@ const FSkyLightSceneProxy* FScene::GetActiveSkyLight(bool bGameView) const
 	return nullptr;
 }
 
+void FScene::PrepareSkyLight(const FSkyLightRenderData& SkyLight)
+{
+	if (SkyLight.SourcePath.empty() || SkyLightEnvironments.contains(SkyLight.SourcePath)) return;
+	auto Environment = MakeUnique<FSkyLightEnvironment>();
+	Environment->Prepare(SkyLight.SourcePath);
+	SkyLightEnvironments.emplace(SkyLight.SourcePath, std::move(Environment));
+}
+
+FSkyLightEnvironment* FScene::FindPendingSkyLightEnvironment(const FString& SourcePath)
+{
+	const auto It = SkyLightEnvironments.find(SourcePath);
+	return It != SkyLightEnvironments.end() && It->second->IsPrepared() && !It->second->IsValid()
+		? It->second.get() : nullptr;
+}
+
+const FSkyLightEnvironment* FScene::FindSkyLightEnvironment(const FString& SourcePath) const
+{
+	const auto It = SkyLightEnvironments.find(SourcePath);
+	return It != SkyLightEnvironments.end() && It->second->IsValid() ? It->second.get() : nullptr;
+}
+
 void FScene::RemoveAllLights()
 {
 	for (FPointLightSceneProxy* Proxy : PointLights)
@@ -108,6 +129,7 @@ void FScene::RemoveAllLights()
 	for (FSkyLightSceneProxy* Proxy : SkyLights)
 		delete Proxy;
 	SkyLights.Reset();
+	SkyLightEnvironments.clear();
 }
 
 void FScene::AddPrimitive(UPrimitiveComponent* Component)
