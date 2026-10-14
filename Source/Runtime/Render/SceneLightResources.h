@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Render/LightRenderData.h"
-#include "Render/ForwardLightCluster.h"
+#include "Render/ForwardLightTiles.h"
 #include "Render/Buffer.h"
 
 struct FDeferredLightConstants
@@ -28,12 +28,12 @@ public:
 	FStructuredBuffer* GetSceneLights() const { return SceneLightBuffer.get(); }
 	FConstantBuffer* GetForwardConstants() const { return ForwardLightCB.get(); }
 	FConstantBuffer* GetDeferredConstants() const { return DeferredLightCB.get(); }
-	FForwardLightClusterGrid& GetClusters() { return ForwardClusterGrid; }
+	FForwardLightTileGrid& GetTiles() { return ForwardTileGrid; }
 
 private:
 	TUniquePtr<FStructuredBuffer> SceneLightBuffer;
 	TUniquePtr<FConstantBuffer> ForwardLightCB;
 	TUniquePtr<FConstantBuffer> DeferredLightCB;
-	FForwardLightClusterGrid ForwardClusterGrid;
+	FForwardLightTileGrid ForwardTileGrid;
 	bool bInitialized = false;
 };

@@ -177,12 +177,12 @@ bool FSceneRenderer::BindForwardLighting(FRenderer* Renderer, const FSceneRender
 	Renderer->BindCube(11, Sky ? Sky->GetIrradianceCube() : nullptr, EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
 	Renderer->BindSampler(1, ESamplerState::LinearClamp, EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
 	
-	FForwardLightClusterGrid& Clusters = LightResources.GetClusters();
-	Clusters.PreparePixelShader(View, Constants, bClustersBuilt);
-	
-	Renderer->BindRawPixelConstant(3, Clusters.GetPixelConstants());
-	const std::array<ID3D11ShaderResourceView*, 2> ClusterSRVs = { Clusters.GetCountsSRV(), Clusters.GetIndicesSRV() };
-	Renderer->BindRawPixelResources(9, ClusterSRVs);
+	FForwardLightTileGrid& Tiles = LightResources.GetTiles();
+	Tiles.PreparePixelShader(Renderer, bTilesBuilt);
+	Renderer->BindPixelConstant(3, Tiles.GetPixelConstants());
+	const std::array<ID3D11ShaderResourceView*, 3> TileSRVs = Tiles.GetPixelResources();
+	Renderer->BindRawPixelResources(9, std::span<ID3D11ShaderResourceView* const>(TileSRVs.data(), 2));
+	Renderer->BindRawPixelResources(12, std::span<ID3D11ShaderResourceView* const>(TileSRVs.data() + 2, 1));
 	
 	Renderer->BindStructured(8, (LightCounts[0] || LightCounts[1] || LightCounts[2]) &&
 		LightResources.GetSceneLights() && LightResources.GetSceneLights()->GetSRV()
@@ -196,7 +196,8 @@ void FSceneRenderer::UnbindForwardLighting(FRenderer* Renderer)
 	const std::array<ID3D11ShaderResourceView*, 2> NullSRVs{};
 	Renderer->BindRawPixelResources(9, NullSRVs);
 	Renderer->BindRawPixelConstant(3, nullptr);
-	RenderData.ViewLightResources.GetClusters().ResetPixelState();
+	Renderer->UnbindResources(12, 1, EShaderBindFlagBits::Pixel);
+	RenderData.ViewLightResources.GetTiles().ResetPixelState();
 	Renderer->UnbindResources(8, 1, EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
 	Renderer->UnbindResources(11, 1, EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
 }
@@ -239,7 +240,7 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 		return false;
 
 	bCorePassSucceeded = true;
-	bClustersBuilt = false;
+	bTilesBuilt = false;
 	if (Options.bShowWorldNormal)
 		return AddWorldNormalPass(Graph, Renderer, Targets, Options);
 	if (RenderData.bHasSkyLight)
@@ -345,27 +346,56 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 	}
 	else // Forward Rendering
 	{
-		if (Options.bDrawPrimitives && bLightUploadSucceeded &&
-			Options.bEnableClusteredLightCulling && Options.LightingModel != ELightingModel::Gouraud &&
+		ForwardBatches.clear();
+		if (Options.bDrawPrimitives)
+		{
+			FMeshPassProcessor Processor;
+			if (!Processor.Build(View, RenderData.RenderQueue, &RenderData,
+				EMeshPassType::Forward, ForwardBatches, Options.LightingModel)) return false;
+		}
+		bool bUseDepthPrepass = false;
+		if (Options.bDrawPrimitives && bLightUploadSucceeded && !View.bIsWireframe &&
+			Options.bEnableTiledLightCulling && Options.LightingModel != ELightingModel::Gouraud &&
 			(LightCounts[0] || LightCounts[1]))
 		{
-			FForwardLightingConstants ClusterLighting{};
-			ClusterLighting.CameraPosition = FVector4(View.ViewLocation.X, View.ViewLocation.Y,
-				View.ViewLocation.Z, 1.0f);
-			std::memcpy(ClusterLighting.LightCounts, LightCounts, sizeof(LightCounts));
-			std::memcpy(ClusterLighting.LightOffsets, LightOffsets, sizeof(LightOffsets));
-			FForwardLightClusterGrid& Grid = RenderData.ViewLightResources.GetClusters();
+			FForwardLightingConstants TileLighting{};
+			std::memcpy(TileLighting.LightCounts, LightCounts, sizeof(LightCounts));
+			std::memcpy(TileLighting.LightOffsets, LightOffsets, sizeof(LightOffsets));
+			FForwardLightTileGrid& Tiles = RenderData.ViewLightResources.GetTiles();
 			FStructuredBuffer* SceneLights = RenderData.ViewLightResources.GetSceneLights();
-			if (Grid.PrepareBuild(View, ClusterLighting, SceneLights))
+			if (Tiles.PrepareBuild(View, TileLighting, SceneLights, Targets.Depth.get()))
 			{
-				FRenderGraphComputePassDesc ClusterPass{};
-				ClusterPass.Name = "BuildForwardLightClusters";
-				ClusterPass.ReadResources = { SceneLights->GetBuffer() };
-				ClusterPass.WriteResources = { Grid.GetCountsResource(), Grid.GetIndicesResource() };
-				if (!Graph.AddComputePass(std::move(ClusterPass), [this, Renderer, SceneLights]
+				FPipelineState* DepthPipeline = FRenderResourceManager::GetPSO(EPSOType::StaticMesh_DepthOnly);
+				if (!DepthPipeline || !DepthPipeline->Shader || !DepthPipeline->Shader->PixelShader) return false;
+				bUseDepthPrepass = true;
+				FRenderGraphRasterPassDesc Prepass{};
+				Prepass.Name = "DepthPrepass";
+				Prepass.DepthAttachment = { Depth, ERenderGraphLoadAction::Clear, 1.0f, 0 };
+				if (!Graph.AddRasterPass(std::move(Prepass), [this, Renderer, DepthPipeline]
 					{
-						RenderData.ViewLightResources.GetClusters().ExecuteBuild(Renderer, SceneLights);
-						bClustersBuilt = true;
+						PrepareDrawData(Renderer, RenderData);
+						if (ForwardBatches.empty()) return;
+						// 같은 VS와 오브젝트 데이터를 사용해 두 패스의 깊이 계산을 일치시킨다.
+						FShaderProgram DepthProgram(ForwardBatches.front().Pipeline.Shader->VertexShader,
+							DepthPipeline->Shader->PixelShader);
+						std::vector<FMeshDrawBatch> DepthBatches = ForwardBatches;
+						for (FMeshDrawBatch& Batch : DepthBatches)
+						{
+							Batch.Pipeline = *DepthPipeline;
+							Batch.Pipeline.Shader = &DepthProgram;
+						}
+						Renderer->DrawMeshes(DepthBatches);
+					})) return false;
+
+				FRenderGraphComputePassDesc Culling{};
+				Culling.Name = "TileLightCulling";
+				Culling.ReadResources = { Targets.Depth->GetRawPtr(), SceneLights->GetBuffer() };
+				const std::array<ID3D11Resource*, 4> Writes = Tiles.GetWriteResources();
+				Culling.WriteResources.assign(Writes.begin(), Writes.end());
+				if (!Graph.AddComputePass(std::move(Culling), [this, Renderer, SceneLights, DepthTexture = Targets.Depth.get()]
+					{
+						if (bCorePassSucceeded)
+							bTilesBuilt = RenderData.ViewLightResources.GetTiles().ExecuteBuild(Renderer, DepthTexture, SceneLights);
 					})) return false;
 			}
 		}
@@ -374,21 +404,17 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 		Forward.ColorAttachments = {
 			{ LightingHDR, ERenderGraphLoadAction::Clear, { 0.0f, 0.0f, 0.0f, 1.0f } }
 		};
-		
-		Forward.DepthAttachment = { Depth, ERenderGraphLoadAction::Clear, 1.0f, 0 };
-		
-		if (!Graph.AddRasterPass(std::move(Forward), [this, Renderer, &Options]
+		Forward.DepthAttachment = { Depth, bUseDepthPrepass ? ERenderGraphLoadAction::Load : ERenderGraphLoadAction::Clear, 1.0f, 0 };
+		if (!Graph.AddRasterPass(std::move(Forward), [this, Renderer, LightingOptions = Options, bUseDepthPrepass]
 			{
-				if (!Options.bDrawPrimitives) return;
-				PrepareDrawData(Renderer, RenderData);
-				std::vector<FMeshDrawBatch> Batches;
-				FMeshPassProcessor Processor;
-				bCorePassSucceeded = Processor.Build(View, RenderData.RenderQueue,
-					&RenderData, EMeshPassType::Forward, Batches, Options.LightingModel);
+				if (!LightingOptions.bDrawPrimitives) return;
+				if (!bUseDepthPrepass) PrepareDrawData(Renderer, RenderData);
+				bCorePassSucceeded = BindForwardLighting(Renderer, LightingOptions);
 				if (!bCorePassSucceeded) return;
-				bCorePassSucceeded = BindForwardLighting(Renderer, Options);
-				if (!bCorePassSucceeded) return;
-				Renderer->DrawMeshes(Batches);
+				if (bUseDepthPrepass)
+					for (FMeshDrawBatch& Batch : ForwardBatches)
+						Batch.Pipeline.DepthStencilState = EDepthStencilState::PrepassReadOnly;
+				Renderer->DrawMeshes(ForwardBatches);
 				UnbindForwardLighting(Renderer);
 			})) return false;
 	}

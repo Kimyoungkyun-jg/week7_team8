@@ -8,7 +8,7 @@ struct FSceneRenderOptions
 	bool bDrawPrimitives = true;
 	bool bEnableFog = true;
 	bool bEnableFXAA = false;
-	bool bEnableClusteredLightCulling = true;
+	bool bEnableTiledLightCulling = true;
 	bool bShowSceneDepth = false;
 	bool bShowWorldNormal = false;
 	float SceneDepthRange = 1.0f;

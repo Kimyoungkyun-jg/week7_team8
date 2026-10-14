@@ -36,6 +36,12 @@ public:
 		std::span<ID3D11UnorderedAccessView* const> UAVs,
 		uint32 GroupsX, uint32 GroupsY, uint32 GroupsZ,
 		ID3D11SamplerState* Sampler = nullptr);
+	void DispatchCompute(ID3D11ComputeShader* Shader, ID3D11Buffer* Constants,
+		uint32 SRVSlot, std::span<ID3D11ShaderResourceView* const> SRVs,
+		std::span<ID3D11UnorderedAccessView* const> UAVs,
+		uint32 GroupsX, uint32 GroupsY, uint32 GroupsZ,
+		ID3D11SamplerState* Sampler = nullptr);
+	void ClearUnorderedAccess(ID3D11UnorderedAccessView* UAV, uint32 Value = 0);
 
 	// 오클루전 객체 조회
 	FGPUOcclusion& GetGPUOcclusion() { return GPUOcclusion; }
