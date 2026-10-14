@@ -52,21 +52,36 @@ bool IsCountPixel(uint Count, uint2 InTile)
     for (uint Remaining = Count; Remaining >= 10; Remaining /= 10)
         ++DigitCount;
 
-    // 네 자리마다 줄을 바꾼다. 최대 크기는 가로15·세로14픽셀이다.
-    uint RowCount = (DigitCount + 3) / 4;
-    uint FirstRowDigits = DigitCount - (RowCount - 1) * 4;
-    uint TextHeight = RowCount * 5 - 1;
-    int Y = int(InTile.y) - int((TILE_SIZE - TextHeight) / 2);
-    if (Y < 0 || Y >= int(TextHeight) || uint(Y) % 5 == 4)
-        return false;
+	// 줄 바꿈 계산
+	uint RowCount = (DigitCount + 3) / 4;
+	uint FirstRowDigits = DigitCount - (RowCount - 1) * 4;
+	uint TextHeight = RowCount * 5 - 1;
 
-    // 왼쪽 경계선 한 픽셀을 보존하면서 각 줄을 중앙에 배치한다.
-    uint Row = uint(Y) / 5;
-    uint RowDigits = Row == 0 ? FirstRowDigits : 4;
-    uint TextWidth = RowDigits * 4 - 1;
-    int X = int(InTile.x) - int((TILE_SIZE - TextWidth + 1) / 2);
-    if (X < 0 || X >= int(TextWidth) || uint(X) % 4 == 3)
-        return false;
+	// 타일 크기 기준값
+	const uint ReferenceTileSize = 16u;
+
+	// 타일 배율 계산
+	const uint DigitScale = max(1u, TILE_SIZE / ReferenceTileSize);
+
+	// 화면 좌표를 글꼴 좌표로 환산
+	TextHeight *= DigitScale;
+	int Y = int(InTile.y) - int((TILE_SIZE - TextHeight) / 2);
+	if (Y < 0 || Y >= int(TextHeight))
+		return false;
+	Y /= int(DigitScale);
+	if (uint(Y) % 5 == 4)
+		return false;
+
+	// 너비와 중앙 정렬 적용
+	uint Row = uint(Y) / 5;
+	uint RowDigits = Row == 0 ? FirstRowDigits : 4;
+	uint TextWidth = (RowDigits * 4 - 1) * DigitScale;
+	int X = int(InTile.x) - int((TILE_SIZE - TextWidth + 1) / 2);
+	if (X < 0 || X >= int(TextWidth))
+		return false;
+	X /= int(DigitScale);
+	if (uint(X) % 4 == 3)
+		return false;
 
     // 현재 글자의 자릿수만 추출한다.
     uint BeforeRow = Row == 0 ? 0 : FirstRowDigits + (Row - 1) * 4;
