@@ -56,7 +56,15 @@ void FSettingsPanel::OnRender()
 	ImGui::SetNextItemWidth(200.0f);
 	if (ImGui::Combo("Lighting Model", &LightingModelIndex, LightingModels, IM_ARRAYSIZE(LightingModels)))
 		Settings.LightingModel = static_cast<ELightingModel>(LightingModelIndex);
-	ImGui::Checkbox("Tiled Light Culling", &Settings.bEnableTiledLightCulling);
+	const char* LightCullingModes[] = { "Off", "Tiled", "Clustered" };
+	int LightCullingModeIndex = static_cast<int>(Settings.LightCullingMode);
+	ImGui::SetNextItemWidth(200.0f);
+	if (ImGui::Combo("Light Culling", &LightCullingModeIndex,
+		LightCullingModes, IM_ARRAYSIZE(LightCullingModes)))
+	{
+		Settings.LightCullingMode = static_cast<ELightCullingMode>(LightCullingModeIndex);
+	}
+	ImGui::TextDisabled("Forward Lambert/Phong only; Off evaluates all uploaded local lights.");
 	ImGui::TextDisabled("Forward Lambert/Phong only; off evaluates all visible local lights.");
 	ImGui::Checkbox("Use Sky Light", &Settings.bUseSkyLight);
 	bool bSkyLightReady = false;
@@ -177,7 +185,7 @@ bool FSettingsPanel::SaveSettings() const
 	File << "DrawPSGrid=" << Settings.bDrawPSGrid << "\n";
 	File << "SceneDepthMaxRange=" << Settings.SceneDepthMaxRange << "\n";
 	File << "EnableFXAA=" << Settings.bEnableFXAA << "\n";
-	File << "EnableTiledLightCulling=" << Settings.bEnableTiledLightCulling << "\n";
+	File << "LightCullingMode=" << (Settings.LightCullingMode == ELightCullingMode::Off ? "Off" : Settings.LightCullingMode == ELightCullingMode::Tiled ? "Tiled" : "Clustered") << "\n";
 	File << "UseSkyLight=" << Settings.bUseSkyLight << "\n";
 	File << "RenderingPath=" << (Settings.RenderingPath == ERenderingPath::Forward ? "Forward" : "Deferred") << "\n";
 	File << "LightingModel=" << (Settings.LightingModel == ELightingModel::Gouraud ? "Gouraud" :
@@ -265,9 +273,9 @@ bool FSettingsPanel::LoadSettings()
                         Settings.ViewPreset[Index] = static_cast<int32>(Value);
                     else if (Key == Prefix + "Wireframe" && (Value == 0 || Value == 1))
                         Settings.ViewWireframe[Index] = static_cast<int32>(Value);
-                    else if (Key == Prefix + "Mode" && Value >= 0 &&
-                        Value <= static_cast<int32>(EViewportMode::WorldNormal) && Value == static_cast<int32>(Value))
-                        Settings.ViewMode[Index] = static_cast<int32>(Value);
+					else if (Key == Prefix + "Mode" && Value >= 0 &&
+						Value <= static_cast<int32>(EViewportMode::LightCulling) && Value == static_cast<int32>(Value))
+						Settings.ViewMode[Index] = static_cast<int32>(Value);
                     else if (Key == Prefix + "LocationX")
                     {
                         Settings.ViewLocation[Index].X = Value;
@@ -312,7 +320,16 @@ bool FSettingsPanel::LoadSettings()
 				else if (Key == "DrawPSGrid") Settings.bDrawPSGrid = std::stoi(ValueStr);
 				else if (Key == "SceneDepthMaxRange") Settings.SceneDepthMaxRange = std::stof(ValueStr);
 				else if (Key == "EnableFXAA") Settings.bEnableFXAA = std::stoi(ValueStr);
-				else if (Key == "EnableTiledLightCulling" || Key == "EnableClusteredLightCulling") Settings.bEnableTiledLightCulling = std::stoi(ValueStr);
+				else if (Key == "LightCullingMode")
+				{
+					if (ValueStr == "Off") Settings.LightCullingMode = ELightCullingMode::Off;
+					else if (ValueStr == "Tiled") Settings.LightCullingMode = ELightCullingMode::Tiled;
+					else if (ValueStr == "Clustered") Settings.LightCullingMode = ELightCullingMode::Clustered;
+				}
+				else if (Key == "EnableTiledLightCulling" || Key == "EnableClusteredLightCulling")
+				{
+					Settings.LightCullingMode = std::stoi(ValueStr) != 0 ? ELightCullingMode::Tiled : ELightCullingMode::Off;
+				}
 				else if (Key == "UseSkyLight") Settings.bUseSkyLight = std::stoi(ValueStr) != 0;
 				else if (Key == "RenderingPath")
 				{

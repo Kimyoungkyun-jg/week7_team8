@@ -19,7 +19,7 @@ struct FEditorSettings
 	bool bDrawBatchLine = true;
 	bool bDrawPSGrid = false;
 	bool bEnableFXAA = false;
-	bool bEnableTiledLightCulling = true;
+	ELightCullingMode LightCullingMode = ELightCullingMode::Tiled;
 	bool bUseSkyLight = true;
 	ERenderingPath RenderingPath = ERenderingPath::Deferred;
 	ELightingModel LightingModel = ELightingModel::Gouraud;

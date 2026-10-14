@@ -1,16 +1,9 @@
-#define TILE_SIZE 32
+// UberLit과 동일한 상수 배치 및 셀 주소 계산을 사용한다.
+#include "LightGridCommon.hlsli"
+
+#define TILE_SIZE LIGHT_GRID_TILE_SIZE
 #define INVALID_LIGHT_LIST 0xffffffffu
 
-// C++의 FTileLightingInfo와 같은 16바이트 레이아웃이다.
-cbuffer TileLightingInfo : register(b3)
-{
-    uint UseTiledLights;
-    uint TileCountX;
-    uint LightTileSize;
-    uint TilePadding1;
-};
-
-// x/y는 Point 시작·개수, z/w는 Spot 시작·개수다.
 StructuredBuffer<uint4> TileLightRanges : register(t9);
 Texture2D<float> SceneDepth : register(t0);
 
@@ -68,7 +61,7 @@ bool IsCountPixel(uint Count, uint2 InTile)
 	int Y = int(InTile.y) - int((TILE_SIZE - TextHeight) / 2);
 	if (Y < 0 || Y >= int(TextHeight))
 		return false;
-	Y /= int(DigitScale);
+    Y = int(uint(Y) / DigitScale);
 	if (uint(Y) % 5 == 4)
 		return false;
 
@@ -79,7 +72,7 @@ bool IsCountPixel(uint Count, uint2 InTile)
 	int X = int(InTile.x) - int((TILE_SIZE - TextWidth + 1) / 2);
 	if (X < 0 || X >= int(TextWidth))
 		return false;
-	X /= int(DigitScale);
+    X = int(uint(X) / DigitScale);
 	if (uint(X) % 4 == 3)
 		return false;
 
@@ -95,46 +88,57 @@ bool IsCountPixel(uint Count, uint2 InTile)
 
 float4 mainPS(FPSInput Input) : SV_Target
 {
-    // 목록이 없거나 불투명 표면이 없는 픽셀은 기존 장면을 유지한다.
-    if (UseTiledLights == 0) discard;
-
     uint2 Pixel = uint2(Input.Position.xy);
-    if (SceneDepth.Load(int3(Pixel, 0)) >= 1.0f)
-        discard;
+    float DeviceZ = SceneDepth.Load(int3(Pixel, 0));
 
+    // 목록이 없거나 불투명 표면이 없는 픽셀은 기존 장면을 유지한다.
+    if (DeviceZ >= 1.0f) discard;
+  
     // 후보 광원이 있는 타일의 표면에만 표시한다.
-    uint2 Tile = Pixel / TILE_SIZE;
-    uint2 InTile = Pixel % TILE_SIZE;
-    uint4 Range = TileLightRanges[Tile.y * TileCountX + Tile.x];
+    uint2 Tile = Pixel / LIGHT_GRID_TILE_SIZE;
+    uint2 InTile = Pixel % LIGHT_GRID_TILE_SIZE;
+    
+    // 숫자는 타일 중앙 표면의 대표 셀에서 가져온 하나의 값으로 고정한다.
+    uint2 CenterPixel = min(Tile * LIGHT_GRID_TILE_SIZE + LIGHT_GRID_TILE_SIZE / 2u, uint2(GridViewWidth - 1u, GridViewHeight - 1u));
+    float CenterDeviceZ = SceneDepth.Load(int3(CenterPixel, 0));
+    if (CenterDeviceZ < 1.0f)
+    {
+        uint TextCount = GridPointCount + GridSpotCount;
+        if (GridMode != LIGHT_GRID_MODE_OFF)
+        {
+            uint4 CenterRange = TileLightRanges[GetLightGridCellIndex(CenterPixel, CenterDeviceZ)];
+            TextCount = CenterRange.y + CenterRange.w;
+        }
+
+        // 제외 수를 보고 싶으면 전체 업로드 수 - TextCount로 바꿀 수 있다.
+        // 현재 표면의 후보가 0이어도 대표 숫자의 획은 먼저 출력한다.
+        if (TextCount > 0u && IsCountPixel(TextCount, InTile)) return float4(1.0f, 1.0f, 1.0f, 1.0f);
+    }
+
+    // Off는 전체 입력 수, 나머지는 현재 표면 셀의 후보 수를 사용한다.
+    uint4 Range = uint4(0u, GridPointCount, 0u, GridSpotCount);
+    if (GridMode != LIGHT_GRID_MODE_OFF)
+        Range = TileLightRanges[GetLightGridCellIndex(Pixel, DeviceZ)];
+
     uint Count = Range.y + Range.w;
     if (Count == 0)
         discard;
 
+    // 기존 나머지 연산 기반 색상 주기를 그대로 사용한다.
     float3 Color = GetTileColor(Count);
     float Alpha = 0.40f;
-
-    // 경계선은 표면 위에서 더 선명하게 표시한다.
     if (InTile.x == 0 || InTile.y == 0)
     {
         Color = float3(0.08f, 0.08f, 0.08f);
         Alpha = 0.70f;
     }
 
-    // 전체 인덱스 버퍼 부족 표식은 유지한다.
-    bool PoolOverflow = Range.x == INVALID_LIGHT_LIST || Range.z == INVALID_LIGHT_LIST;
-    if (PoolOverflow && InTile.x >= TILE_SIZE -3 && InTile.y >= 1 && InTile.y <= 2)
+    // 공간 부족으로 전체 배열 평가에 전환된 셀을 표시한다.
+    bool PoolOverflow = GridMode != LIGHT_GRID_MODE_OFF && (Range.x == INVALID_LIGHT_LIST || Range.z == INVALID_LIGHT_LIST);
+    if (PoolOverflow && InTile.x >= LIGHT_GRID_TILE_SIZE - 3u && InTile.y >= 1u && InTile.y <= 2u)
     {
         Color = float3(1.0f, 0.0f, 1.0f);
         Alpha = 1.0f;
     }
-
-    // 실제 후보 개수를 흰색으로 표시한다.
-    if (IsCountPixel(Count, InTile))
-    {
-        Color = float3(1.0f, 1.0f, 1.0f);
-        Alpha = 1.0f;
-    }
-
     return float4(Color, Alpha);
-
 }

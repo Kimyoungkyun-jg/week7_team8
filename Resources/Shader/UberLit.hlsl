@@ -1,5 +1,6 @@
 #pragma pack_matrix(row_major)
 #include "LightEvaluation.hlsli"
+#include "LightGridCommon.hlsli"
 
 // 셰이더 스캐너는 매크로 정의 없이 이 파일을 컴파일하므로 기본 변형에는 Lambert를 쓴다.
 // 명시적인 변형은 컴파일할 때 조명 모델 하나만 1로 설정한다.
@@ -47,15 +48,6 @@ StructuredBuffer<uint> TilePointIndices : register(t10);
 StructuredBuffer<uint> TileSpotIndices : register(t12);
 TextureCube<float4> SkyIrradiance : register(t11);
 SamplerState SkySampler : register(s1);
-
-// Compute가 생성한 타일 목록의 주소 계산과 사용 여부만 전달한다.
-cbuffer ForwardTileLightingInfo : register(b3)
-{
-    uint UseTiledLights;
-    uint TileCountX;
-    uint LightTileSize;
-    uint TilePadding;
-};
 
 cbuffer MaterialParams : register(b2)
 {
@@ -210,37 +202,43 @@ FLightResult CalculateLighting(float3 P, float3 Normal, bool bIncludeSpecular)
     return Result;
 }
 
-// 타일 목록의 인덱스는 kim의 공유 SceneLights 안에서 종류별 시작 위치에 더한다.
-FLightResult CalculateTiledLighting(float2 PixelPosition, float3 P,
-    float3 Normal, bool bIncludeSpecular)
+// 기존 함수에서 Off/Tiled/Clustered의 목록 선택을 함께 처리한다.
+FLightResult CalculateTiledLighting(float3 PixelPosition, float3 P, float3 Normal, bool bIncludeSpecular)
 {
     float3 N = normalize(Normal);
     float3 ToCamera = CameraPosition.xyz - P;
     float3 V = ToCamera * rsqrt(max(dot(ToCamera, ToCamera), 1.0e-8f));
     FLightResult Result = CalculateBaseLighting(N, V, bIncludeSpecular);
-    if (UseTiledLights == 0)
-    {
-        AddAllLocalLights(Result, P, N, V, bIncludeSpecular);
-        return Result;
-    }
 
-    uint2 Tile = uint2(PixelPosition) / LightTileSize;
-    uint4 Range = TileLightRanges[Tile.y * TileCountX + Tile.x];
-    bool UsePointList = Range.x != 0xffffffffu;
-    bool UseSpotList = Range.z != 0xffffffffu;
-    uint PointCount = UsePointList ? Range.y : LightCounts.x;
-    uint SpotCount = UseSpotList ? Range.w : LightCounts.y;
-    [loop]
-    for (uint Index = 0; Index < PointCount; ++Index)
+    if (GridMode == LIGHT_GRID_MODE_OFF)
     {
-        uint LightIndex = UsePointList ? TilePointIndices[Range.x + Index] : Index;
-        CalculatePointLight(Result, SceneLights[LightOffsets.x + LightIndex], P, N, V, bIncludeSpecular);
+        // Off는 업로드된 전체 로컬 광원을 평가한다.
+        AddAllLocalLights(Result, P, N, V, bIncludeSpecular);
     }
-    [loop]
-    for (uint Index = 0; Index < SpotCount; ++Index)
+    else
     {
-        uint LightIndex = UseSpotList ? TileSpotIndices[Range.z + Index] : Index;
-        CalculateSpotLight(Result, SceneLights[LightOffsets.y + LightIndex], P, N, V, bIncludeSpecular);
+        // SV_POSITION.xy는 픽셀 위치, z는 현재 표면의 DeviceZ다.
+        uint CellIndex = GetLightGridCellIndex(uint2(PixelPosition.xy), PixelPosition.z);
+        uint4 Range = TileLightRanges[CellIndex];
+        bool UsePointList = Range.x != 0xffffffffu;
+        bool UseSpotList = Range.z != 0xffffffffu;
+        uint PointCount = UsePointList ? Range.y : LightCounts.x;
+        uint SpotCount = UseSpotList ? Range.w : LightCounts.y;
+
+        // 예약 실패한 종류만 전체 배열을 평가하는 기존 fallback을 유지한다.
+        [loop]
+        for (uint PointListIndex = 0; PointListIndex < PointCount; ++PointListIndex)
+        {
+            uint LightIndex = UsePointList ? TilePointIndices[Range.x + PointListIndex] : PointListIndex;
+            CalculatePointLight(Result, SceneLights[LightOffsets.x + LightIndex], P, N, V, bIncludeSpecular);
+        }
+
+        [loop]
+        for (uint SpotListIndex = 0; SpotListIndex < SpotCount; ++SpotListIndex)
+        {
+            uint LightIndex = UseSpotList ? TileSpotIndices[Range.z + SpotListIndex] : SpotListIndex;
+            CalculateSpotLight(Result, SceneLights[LightOffsets.y + LightIndex], P, N, V, bIncludeSpecular);
+        }
     }
     return Result;
 }
@@ -295,11 +293,11 @@ FForwardOutput Uber_PS(VS_OUT Input)
     Diffuse = Input.VertexDiffuse;
     Specular = Input.VertexSpecular;
 #elif LIGHTING_MODEL_LAMBERT
-    Diffuse = CalculateTiledLighting(Input.Position.xy, Input.WorldPosition,
-        ShadingNormal, false).Diffuse;
+    // 픽셀 위치와 깊이를 함께 전달한다.
+    Diffuse = CalculateTiledLighting(Input.Position.xyz, Input.WorldPosition, ShadingNormal, false).Diffuse;
 #elif LIGHTING_MODEL_PHONG
-    FLightResult Lit = CalculateTiledLighting(Input.Position.xy, Input.WorldPosition,
-        ShadingNormal, true);
+    // 같은 목록 선택 경로에서 기존 Blinn-Phong 조명을 계산한다.
+    FLightResult Lit = CalculateTiledLighting(Input.Position.xyz, Input.WorldPosition, ShadingNormal, true);
     Diffuse = Lit.Diffuse;
     Specular = Lit.Specular;
 #endif

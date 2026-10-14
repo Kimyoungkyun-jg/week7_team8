@@ -3,6 +3,7 @@
 #include "Core/Types.h"
 #include "Render/Buffer.h"
 #include "Render/LightRenderData.h"
+#include "Render/RenderEnums.h"
 #include <array>
 
 class FRenderer;
@@ -15,7 +16,7 @@ class FForwardLightTileGrid
 public:
 	bool Init();
 	bool PrepareBuild(const FSceneView& View, const FForwardLightingConstants& Lighting,
-		const FStructuredBuffer* SceneLights, const FTexture2D* Depth);
+		const FStructuredBuffer* SceneLights, const FTexture2D* Depth, ELightCullingMode InMode);
 	bool ExecuteBuild(FRenderer* Renderer, FTexture2D* Depth, const FStructuredBuffer* SceneLights);
 	void PreparePixelShader(FRenderer* Renderer, bool bBuildSucceeded);
 	FConstantBuffer* GetPixelConstants() const { return LightingInfoCB.get(); }
@@ -24,15 +25,22 @@ public:
 	void ResetPixelState() { bPixelTilesValid = false; }
 
 private:
-	struct FTileCullingConstants
+	static constexpr uint32 LightTileSize = 32;
+	static constexpr uint32 ClusterDepthSlices = 24; // 클러스터에서 사용
+	static constexpr uint32 TiledAverageLightsPerCell = 64;
+	static constexpr uint32 ClusterAverageLightsPerCell = 16;
+
+	struct FGridConstants
 	{
-		FMatrix View;
-		FVector4 ProjectionParams;
-		uint32 ViewWidth = 0, ViewHeight = 0, TileCountX = 0, IsPerspective = 0;
-		uint32 PointLightCount = 0, SpotLightCount = 0, PointIndexCapacity = 0, SpotIndexCapacity = 0;
-		uint32 LightOffsets[4]{};
+		FMatrix GridView;
+		FVector4 GridProjectionParams;
+		uint32 GridViewWidth = 0, GridViewHeight = 0, GridTileCountX = 0, GridTileCountY = 0;
+		uint32 GridMode = 0, GridSliceCount = 1, GridIsPerspective = 0, GridPadding = 0;
+		uint32 GridPointCount = 0, GridSpotCount = 0, GridPointIndexCapacity = 0, GridSpotIndexCapacity = 0;
+		uint32 GridLightOffsets[4]{};
+		FVector4 GridDepthParams; // Near, Far, SliceScale, SliceBias
 	};
-	static_assert(sizeof(FTileCullingConstants) == 128);
+	static_assert(sizeof(FGridConstants) == 160);
 
 	struct FTileBuffer
 	{
@@ -44,10 +52,10 @@ private:
 	};
 
 	ComPtr<ID3D11ComputeShader> ComputeShader;
+	ComPtr<ID3D11ComputeShader> ClusterComputeShader;
 	TUniquePtr<FConstantBuffer> CullingCB;
 	TUniquePtr<FConstantBuffer> LightingInfoCB;
 	FTileBuffer Ranges, PointIndices, SpotIndices, Allocator;
-	FTileCullingConstants Constants{};
-	uint32 TileCountY = 0;
+	FGridConstants  Constants{};
 	bool bPixelTilesValid = false;
 };

@@ -18,3 +18,10 @@ enum class ELightingModel
     Lambert,
     Phong
 };
+
+enum class ELightCullingMode
+{
+    Off = 0,
+    Tiled = 1,
+    Clustered = 2
+};
