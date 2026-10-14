@@ -49,10 +49,13 @@ namespace
 			if (!Pipeline || !Pipeline->Shader || !Pipeline->Shader->VertexShader || !Pipeline->Shader->PixelShader)
 				return false;
 			Batch.Pipeline = *Pipeline;
-			return true;
+			FStaticMeshMaterialParams Params{};
+			Params.UVOffset = Material->UVScrollSpeed * EngineTimer::GetTotalTime();
+			Params.TextureFlags.X = GetNormalEncoding(Material->Textures.Num() > 1 ? Material->Textures[1] : nullptr);
+			std::memcpy(Batch.MaterialData.data(), &Params, sizeof(Params));
+			Batch.MaterialDataSize = sizeof(Params);
 		}
-
-		if (Pass == EMeshPassType::Forward)
+		else if (Pass == EMeshPassType::Forward)
 		{
 			FPipelineState* Base = FRenderResourceManager::GetPSO(EPSOType::StaticMesh_Forward);
 			FShaderProgram* Shader = FRenderResourceManager::GetForwardShaderProgram(LightingModel);
