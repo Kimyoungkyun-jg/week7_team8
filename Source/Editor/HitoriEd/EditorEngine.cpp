@@ -216,6 +216,7 @@ bool UEditorEngine::Init() {
 	EditorControlsPanel->SetWorld(EditorWorld);
 	EditorControlsPanel->SetGizmo(Gizmo.get());
 	EditorControlsPanel->SetViewportsPanel(ViewportsPanel);
+	EditorControlsPanel->SetRenderer(Renderer);
 
 	SettingsPanel->SetWorld(EditorWorld);
 	SettingsPanel->SetViewportsPanel(ViewportsPanel);
@@ -735,8 +736,12 @@ bool UEditorEngine::RenderSceneFrame(FDeferredViewTargets& Targets, const FScene
 	{
 		if (!SceneRenderer.RenderGBuffer(Renderer, Targets, Width, Height))
 			return false;
-		RenderCommand::BeginRenderPass(Targets.LightingHDR.get(), nullptr, Width, Height);
-		SceneRenderer.RenderDeferredLighting(Renderer, Targets);
+		RenderCommand::BeginRenderPass(Targets.LightingHDR.get(), Targets.Depth.get(), Width, Height);
+		//SceneRenderer.RenderDeferredLighting(Renderer, Targets);
+
+		SceneRenderer.PrepareDrawData(Renderer, SceneRenderer.GetRenderData());
+		Renderer->RenderOpaque(SceneView, SceneRenderer.GetRenderData().RenderQueue, false);
+
 		RenderCommand::EndRenderPass();
 	}
 	else

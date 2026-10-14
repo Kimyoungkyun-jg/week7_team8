@@ -13,6 +13,7 @@
 #include "GameFramework/Actor/FireBallActor.h"
 #include "GameFramework/Actor/ProjectileActor.h"
 class FViewportsPanel;
+class FRenderer;
 
 // 액터 생성과 카메라·기즈모 편집에 필요한 패널 상태를 보관한다.
 class FEditorControlsPanel : public IEditorPanel
@@ -25,10 +26,12 @@ public:
 	inline void SetGizmo(FGizmo* InGizmo) { Gizmo = InGizmo; }
 	inline void SetWorld(UWorld* InWorld) { World = InWorld; }
 	inline void SetViewportsPanel(FViewportsPanel* InPanel) { ViewportsPanel = InPanel; }
+	inline void SetRenderer(FRenderer* InRenderer) { Renderer = InRenderer; }
 
 	float DeltaTime = 1.0f;
 	UWorld* World = nullptr;
 	FViewportsPanel* ViewportsPanel = nullptr;
+	FRenderer* Renderer = nullptr;
 
 	void AddActor(uint32 Index);
 

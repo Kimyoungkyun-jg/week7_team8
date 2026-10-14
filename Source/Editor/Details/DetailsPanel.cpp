@@ -8,6 +8,8 @@
 #include "Component/TextRenderComponent.h"
 #include "Component/SpotLightComponent.h"
 #include "Component/PointLightComponent.h"
+#include "Component/DirectionalLightComponent.h"
+#include "Component/AmbientLightComponent.h"
 #include "Component/RotationMovementComponent.h"
 #include "Component/ParticleSubUVComponent.h"
 #include "Component/BillboardComponent.h"
@@ -352,6 +354,7 @@ namespace
 			UMaterial* Override = MeshComponent->GetOverrideMaterial(Slot);
 			UMaterial* Effective = MeshComponent->GetMaterial(Slot);
 			UTexture2D* Texture = (Effective && Effective->Textures.Num() > 0) ? Effective->Textures[0] : nullptr;
+			UTexture2D* NormalTexture = (Effective && Effective->Textures.Num() > 1) ? Effective->Textures[1] : nullptr;
 
 			ImGui::SameLine();
 
@@ -381,7 +384,7 @@ namespace
 
 					ImGui::TableNextRow();
 					ImGui::TableSetColumnIndex(0);
-					ImGui::Text("Texture");
+					ImGui::Text("Base Color Tex");
 
 					ImGui::TableSetColumnIndex(1);
 
@@ -431,6 +434,88 @@ namespace
 						if (ImGui::IsItemHovered())
 						{
 							ImGui::SetTooltip("%s", Texture->GetPath().c_str());
+						}
+						ImGui::SameLine();
+						if (ImGui::SmallButton("Clear##BaseTex"))
+						{
+							Override = EnsureMaterialOverride(MeshComponent, Slot, Effective, Override);
+							if (Override && Override->Textures.Num() > 0)
+							{
+								Override->Textures[0] = nullptr;
+								MeshComponent->OnPropertyChanged("OverrideMaterials");
+								Texture = nullptr;
+								Effective = Override;
+							}
+						}
+					}
+					else
+					{
+						ImGui::TextDisabled("(Empty)");
+					}
+
+					// 2.5: Normal Map 텍스처 슬롯
+					ImGui::TableNextRow();
+					ImGui::TableSetColumnIndex(0);
+					ImGui::Text("Normal Map");
+
+					ImGui::TableSetColumnIndex(1);
+
+					if (NormalTexture && NormalTexture->GetResource())
+					{
+						ImGui::Image((ImTextureID)NormalTexture->GetResource()->GetSRV(), { ThumbnailSize, ThumbnailSize });
+						if (ImGui::IsItemHovered())
+						{
+							ImGui::SetTooltip("%s", NormalTexture->GetPath().c_str());
+						}
+					}
+					else
+					{
+						ImGui::Button("Empty##Normal", { ThumbnailSize, ThumbnailSize });
+					}
+					if (ImGui::BeginDragDropTarget())
+					{
+						if (const ImGuiPayload* Payload = ImGui::AcceptDragDropPayload(EditorDragDrop::Texture))
+						{
+							UTexture2D* DroppedTexture = *static_cast<UTexture2D**>(Payload->Data);
+							Override = EnsureMaterialOverride(MeshComponent, Slot, Effective, Override);
+
+							if (Override)
+							{
+								while (Override->Textures.Num() < 2)
+								{
+									Override->Textures.Add(nullptr);
+								}
+								Override->Textures[1] = DroppedTexture;
+								MeshComponent->OnPropertyChanged("OverrideMaterials");
+								NormalTexture = DroppedTexture;
+								Effective = Override;
+							}
+						}
+						ImGui::EndDragDropTarget();
+					}
+					ImGui::SameLine();
+
+					if (NormalTexture)
+					{
+						fs::path Path(NormalTexture->GetPath());
+						FString FileName = Path.filename().string();
+
+						ImGui::TextWrapped("%s", FileName.c_str());
+						if (ImGui::IsItemHovered())
+						{
+							ImGui::SetTooltip("%s", NormalTexture->GetPath().c_str());
+						}
+						ImGui::SameLine();
+						if (ImGui::SmallButton("Clear##Normal"))
+						{
+							Override = EnsureMaterialOverride(MeshComponent, Slot, Effective, Override);
+							if (Override && Override->Textures.Num() > 1)
+							{
+								Override->Textures[1] = nullptr;
+								MeshComponent->OnPropertyChanged("OverrideMaterials");
+								NormalTexture = nullptr;
+								Effective = Override;
+							}
 						}
 					}
 					else
@@ -536,6 +621,89 @@ namespace
 							}
 						}
 						ImGui::EndCombo();
+					}
+
+					// 7: Shading Model (UberLit)
+					ImGui::TableNextRow();
+					ImGui::TableSetColumnIndex(0);
+					ImGui::Text("Shading Model");
+
+					ImGui::TableSetColumnIndex(1);
+					ImGui::SetNextItemWidth(-1.0f);
+
+					const char* ShadingModelItems[] = { "Default (Opaque)", "Gouraud", "Lambert", "Blinn-Phong" };
+					int ShadingModelIndex = 0;
+					if (Effective)
+					{
+						if (Effective->PSOType == EPSOType::StaticMesh_Gouruad) ShadingModelIndex = 1;
+						else if (Effective->PSOType == EPSOType::StaticMesh_Lambert) ShadingModelIndex = 2;
+						else if (Effective->PSOType == EPSOType::StaticMesh_Phong) ShadingModelIndex = 3;
+						else ShadingModelIndex = 0;
+					}
+
+					if (ImGui::BeginCombo("##ShadingModel", ShadingModelItems[ShadingModelIndex]))
+					{
+						for (int i = 0; i < IM_ARRAYSIZE(ShadingModelItems); ++i)
+						{
+							if (ImGui::Selectable(ShadingModelItems[i], ShadingModelIndex == i))
+							{
+								Override = EnsureMaterialOverride(MeshComponent, Slot, Effective, Override);
+								if (Override)
+								{
+									switch (i)
+									{
+									case 1: Override->PSOType = EPSOType::StaticMesh_Gouruad; break;
+									case 2: Override->PSOType = EPSOType::StaticMesh_Lambert; break;
+									case 3: Override->PSOType = EPSOType::StaticMesh_Phong; break;
+									case 0:
+									default: Override->PSOType = EPSOType::StaticMesh_Opaque; break;
+									}
+									MeshComponent->OnPropertyChanged("OverrideMaterials");
+									Effective = Override;
+								}
+							}
+						}
+						ImGui::EndCombo();
+					}
+
+					// 8: Specular Color & Shininess (Phong / Blinn-Phong)
+					if (Effective && Effective->PSOType == EPSOType::StaticMesh_Phong)
+					{
+						ImGui::TableNextRow();
+						ImGui::TableSetColumnIndex(0);
+						ImGui::Text("Specular Color");
+
+						ImGui::TableSetColumnIndex(1);
+						ImGui::SetNextItemWidth(-1.0f);
+						FVector TempSpecular = Effective->SpecularColor;
+						if (ImGui::ColorEdit3("##SpecularColor", &TempSpecular.X))
+						{
+							Override = EnsureMaterialOverride(MeshComponent, Slot, Effective, Override);
+							if (Override)
+							{
+								Override->SpecularColor = TempSpecular;
+								MeshComponent->OnPropertyChanged("OverrideMaterials");
+								Effective = Override;
+							}
+						}
+
+						ImGui::TableNextRow();
+						ImGui::TableSetColumnIndex(0);
+						ImGui::Text("Shininess");
+
+						ImGui::TableSetColumnIndex(1);
+						ImGui::SetNextItemWidth(-1.0f);
+						float TempShininess = Effective->Shininess;
+						if (ImGui::DragFloat("##Shininess", &TempShininess, 1.0f, 1.0f, 256.0f, "%.1f"))
+						{
+							Override = EnsureMaterialOverride(MeshComponent, Slot, Effective, Override);
+							if (Override)
+							{
+								Override->Shininess = TempShininess;
+								MeshComponent->OnPropertyChanged("OverrideMaterials");
+								Effective = Override;
+							}
+						}
 					}
 
 					ImGui::EndTable();
@@ -1002,22 +1170,63 @@ void FDetailsPanel::DrawAddComponentPopup(AActor * Owner)
 			auto* NewComp = Owner->CreateDefaultSubobject<UStaticMeshComponent>("StaticMesh");
 			if (Owner->GetRootComponent())
 				NewComp->SetupAttachment(Owner->GetRootComponent());
+			else
+				Owner->SetRootComponent(NewComp);
 			NewComp->RegisterComponent();
+			SelectedComponent = NewComp;
+			Target = NewComp;
 		}
-		if (ImGui::Selectable("SpotLight Component"))
+
+		ImGui::Separator();
+		ImGui::TextDisabled("Lighting");
+
+		if (ImGui::Selectable("DirectionalLight Component"))
 		{
-			auto* NewComp = Owner->CreateDefaultSubobject<USpotLightComponent>("SpotLight");
+			auto* NewComp = Owner->CreateDefaultSubobject<UDirectionalLightComponent>("DirectionalLight");
 			if (Owner->GetRootComponent())
 				NewComp->SetupAttachment(Owner->GetRootComponent());
+			else
+				Owner->SetRootComponent(NewComp);
 			NewComp->RegisterComponent();
+			SelectedComponent = NewComp;
+			Target = NewComp;
 		}
 		if (ImGui::Selectable("PointLight Component"))
 		{
 			auto* NewComp = Owner->CreateDefaultSubobject<UPointLightComponent>("PointLight");
 			if (Owner->GetRootComponent())
 				NewComp->SetupAttachment(Owner->GetRootComponent());
+			else
+				Owner->SetRootComponent(NewComp);
 			NewComp->RegisterComponent();
+			SelectedComponent = NewComp;
+			Target = NewComp;
 		}
+		if (ImGui::Selectable("SpotLight Component"))
+		{
+			auto* NewComp = Owner->CreateDefaultSubobject<USpotLightComponent>("SpotLight");
+			if (Owner->GetRootComponent())
+				NewComp->SetupAttachment(Owner->GetRootComponent());
+			else
+				Owner->SetRootComponent(NewComp);
+			NewComp->RegisterComponent();
+			SelectedComponent = NewComp;
+			Target = NewComp;
+		}
+		if (ImGui::Selectable("AmbientLight Component"))
+		{
+			auto* NewComp = Owner->CreateDefaultSubobject<UAmbientLightComponent>("AmbientLight");
+			if (Owner->GetRootComponent())
+				NewComp->SetupAttachment(Owner->GetRootComponent());
+			else
+				Owner->SetRootComponent(NewComp);
+			NewComp->RegisterComponent();
+			SelectedComponent = NewComp;
+			Target = NewComp;
+		}
+
+		ImGui::Separator();
+		ImGui::TextDisabled("Other");
 		if (ImGui::Selectable("RotatingMovement Component"))
 		{
 			auto* NewComp = Owner->CreateDefaultSubobject<RotatingMovementComponent>("RotatingMovement");

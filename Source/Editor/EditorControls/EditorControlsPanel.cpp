@@ -1,6 +1,7 @@
 #include "EnginePCH.h"
 
 #include "Editor/EditorControls/EditorControlsPanel.h"
+#include "Render/Renderer.h"
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
 
@@ -87,6 +88,28 @@ void FEditorControlsPanel::OnRender()
 
 	ImGui::SameLine();
 	ImGui::TextDisabled("%s", CountText);
+
+	//////////////////////////////////////////////////////
+
+	if (Renderer)
+	{
+		ImGui::Dummy(ImVec2(0.0f, SectionGap));
+		ImGui::SeparatorText("Shading Model (Global)");
+
+		static const char* ShadingModelItems[] = {
+			"Material Default",
+			"Gouraud (Vertex Lit)",
+			"Lambert (Pixel Diffuse)",
+			"Blinn-Phong (Pixel Specular)"
+		};
+
+		int CurrentShadingModel = static_cast<int>(Renderer->GetShadingModelOverride());
+		ImGui::SetNextItemWidth(-1.0f);
+		if (ImGui::Combo("##GlobalShadingModel", &CurrentShadingModel, ShadingModelItems, IM_ARRAYSIZE(ShadingModelItems)))
+		{
+			Renderer->SetShadingModelOverride(static_cast<EShadingModelOverride>(CurrentShadingModel));
+		}
+	}
 
 	//////////////////////////////////////////////////////
 

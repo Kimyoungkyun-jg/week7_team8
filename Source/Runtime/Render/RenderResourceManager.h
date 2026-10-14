@@ -8,7 +8,7 @@ enum class EPSOType : uint8
 {
 	StaticMesh_Opaque,       // 기본 불투명
 	StaticMesh_Translucent,  // 반투명
-	StaticMesh_Wireframe,    
+	StaticMesh_Wireframe,
 	Particle_AlphaBlend,     
 	Particle_Additive,       
 	Skybox,                  
@@ -21,6 +21,9 @@ enum class EPSOType : uint8
 	ToneMap,
 	FireBall,
 	Billboard,
+	StaticMesh_Gouruad,
+	StaticMesh_Lambert,
+	StaticMesh_Phong,
 	Count
 };
 

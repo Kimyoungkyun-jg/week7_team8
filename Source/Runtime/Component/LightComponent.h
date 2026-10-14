@@ -8,5 +8,9 @@ class ULightComponent : public ULightComponentBase
 	REFLECT_START(ULightComponent)
 	REFLECT_END()
 public:
-private:
+
+protected:
+	bool ShouldCreateRenderState() const override { return true; }
+	void CreateRenderState() override;
+	void DestroyRenderState() override;
 };

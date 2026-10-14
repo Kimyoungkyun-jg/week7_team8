@@ -2,6 +2,7 @@
 
 #include "Render/RenderPacket.h"
 #include "Render/ObjectConstants.h"
+#include "Render/LightingConstant.h"
 #include "Engine/PrimitiveSceneProxy.h"
 #include "Engine/LightSceneProxy.h"
 #include <algorithm>
@@ -41,7 +42,8 @@ struct FSceneRenderData
 	TArray<uint8> SelectedLODs;
 	TArray<FGatherChunk> GatherChunks;
 	TArray<FPerObjectConstants> ObjectConstants;
-	TArray<FPointLightRenderData> VisiblePointLights;
+	FLightingConstants LightsConstant;
+	//TArray<FPointLightRenderData> VisiblePointLights;
 
 	void ResetScene()
 	{
@@ -61,7 +63,8 @@ struct FSceneRenderData
 		LODInputs.Reset();
 		SelectedLODs.Reset();
 		ObjectConstants.Reset();
-		VisiblePointLights.Reset();
+		LightsConstant = FLightingConstants{};
+		//VisiblePointLights.Reset();
 		for (FGatherChunk& Chunk : GatherChunks)
 		{
 			Chunk.Packets.Reset();

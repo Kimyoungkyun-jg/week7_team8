@@ -84,6 +84,8 @@ public:
 	FVector GetWorldScale3D() const;
 	FMatrix GetWorldMatrix() const;
 
+	FVector GetForwardVector() const;
+
 	void MarkTransformDirty();
 	virtual void OnTransformDirty() {};
 

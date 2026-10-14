@@ -15,7 +15,7 @@ FShaderByteCode RenderUtil::CompileShader(FString Path, const char* EntryPoint, 
 	std::wstring WPath(Path.begin(), Path.end());
 
 	ComPtr<ID3DBlob> ErrorBlob;
-	HRESULT hr = D3DCompileFromFile(WPath.c_str(), nullptr, nullptr, EntryPoint, Target, 0, 0, ByteCode.Blob.GetAddressOf(), ErrorBlob.GetAddressOf());
+	HRESULT hr = D3DCompileFromFile(WPath.c_str(), nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE, EntryPoint, Target, 0, 0, ByteCode.Blob.GetAddressOf(), ErrorBlob.GetAddressOf());
 
 	if (FAILED(hr))
 	{
@@ -76,6 +76,17 @@ bool RenderUtil::IsCsoUpToDate(const FString& ShaderPath, const FString& CsoPath
 	if (Ec) return false;
 	const auto CsoTime = fs::last_write_time(CsoPath, Ec);
 	if (Ec) return false;
+
+	// UberLit.hlsl 등 공용 인클루드 파일이 수정되었을 때도 캐시 무효화
+	const fs::path UberLitPath = "Resources/Shader/UberLit.hlsl";
+	if (fs::exists(UberLitPath, Ec))
+	{
+		const auto UberLitTime = fs::last_write_time(UberLitPath, Ec);
+		if (!Ec && UberLitTime > CsoTime)
+		{
+			return false;
+		}
+	}
 
 	return CsoTime > SrcTime;
 }

@@ -9,6 +9,11 @@
 #include "Component/StaticMeshComponent.h"
 #include "Asset/LOD/StaticMeshLODSelector.h"
 
+#include "Engine/AmbientLightSceneProxy.h"
+#include "Engine/DirectionalLightSceneProxy.h"
+#include "Engine/PointLightSceneProxy.h"
+#include "Engine/SpotLightSceneProxy.h"
+
 #include <cmath>
 #include <cstring>
 
@@ -37,28 +42,65 @@ void FSceneRenderer::InitViews(FRenderer* Renderer)
 	// 렌더 큐 자체 정렬
 	RenderData.RenderQueue.Sort();
 
+	uint32 PointLightCount = 0;
+	uint32 SpotLightCount = 0;
 	for (const FLightSceneProxy* Light : World->GetScene().GetLights()) // 월드에 있는 모든 라이트 정보 가져오기
 	{
 		if (!Light->IsEnabled() || !Light->IsShown(View.bGameView)) continue;
-		const FPointLightRenderData& Data = Light->GetRenderData();
-		const float Radius = Data.PositionRadius.W;
-		bool bInView = true;
-		for (const FPlane& Plane : View.Frustum.Planes)
+
+		ELightType CurrentType = Light->GetLightType();
+
+		switch (CurrentType)
+		{					
+		case ELightType::Ambient:
 		{
-			const float Distance = Plane.Normal.X * Data.PositionRadius.X +
-				Plane.Normal.Y * Data.PositionRadius.Y +
-				Plane.Normal.Z * Data.PositionRadius.Z + Plane.Distance;
-			const float NormalLength = std::sqrt(Plane.Normal.X * Plane.Normal.X +
-				Plane.Normal.Y * Plane.Normal.Y + Plane.Normal.Z * Plane.Normal.Z);
-			if (Distance < -Radius * NormalLength)
+			const FAmbientLightSceneProxy* AmbientProxy = static_cast<const FAmbientLightSceneProxy*>(Light);
+
+			RenderData.LightsConstant.Ambient = AmbientProxy->GetRenderInfo();
+
+			break;
+		}			
+		case ELightType::Directional:
+		{
+			const FDirectionalLightSceneProxy* DirectionalProxy = static_cast<const FDirectionalLightSceneProxy*>(Light);
+
+			RenderData.LightsConstant.Directional = DirectionalProxy->GetRenderInfo();
+
+			break;
+		}			
+		case ELightType::Point:
+		{
+			if (PointLightCount >= NUM_POINT_LIGHT)
 			{
-				bInView = false;
-				break;
+				continue;
 			}
+
+			const FPointLightSceneProxy* PointProxy = static_cast<const FPointLightSceneProxy*>(Light);				
+
+			RenderData.LightsConstant.PointLights[PointLightCount] = PointProxy->GetRenderInfo();
+
+			PointLightCount++;
+			break;
+		}			
+		case ELightType::Spot:
+		{
+			if (SpotLightCount >= NUM_SPOT_LIGHT)
+			{
+				continue;
+			}
+
+			const FSpotLightSceneProxy* SpotProxy = static_cast<const FSpotLightSceneProxy*>(Light);
+
+			RenderData.LightsConstant.SpotLights[SpotLightCount] = SpotProxy->GetRenderInfo();
+
+			SpotLightCount++;
+			break;
 		}
-		if (!bInView) continue;
-		if (RenderData.VisiblePointLights.Num() >= MaxDeferredPointLights) break;
-		RenderData.VisiblePointLights.Add(Data);
+			
+		case ELightType::None:
+		default:
+			break;
+		}
 	}
 }
 
@@ -75,8 +117,8 @@ bool FSceneRenderer::RenderGBuffer(FRenderer* Renderer, const FDeferredViewTarge
 
 void FSceneRenderer::RenderDeferredLighting(FRenderer* Renderer, const FDeferredViewTargets& Targets)
 {
-	if (Renderer)
-		Renderer->DrawDeferredLighting(View, Targets, RenderData.VisiblePointLights);
+	//if (Renderer)
+	//	Renderer->DrawDeferredLighting(View, Targets, RenderData.VisiblePointLights);
 }
 
 void FSceneRenderer::RenderToneMap(FRenderer* Renderer, const FDeferredViewTargets& Targets)
@@ -357,4 +399,6 @@ void FSceneRenderer::PrepareDrawData(FRenderer* Renderer, const FSceneRenderData
 				&Data.ObjectConstants[Index], sizeof(FPerObjectConstants));
 		Renderer->EndObjectConstants();
 	}
+
+	Renderer->UpdateLighting(Data.LightsConstant);
 }

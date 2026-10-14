@@ -28,6 +28,7 @@ public:
 		const FFrustumPlanes* Frustum = nullptr, FRenderer* Renderer = nullptr);
 	static void PrepareDrawData(FRenderer* Renderer, const FSceneRenderData& Data);
 	const FRenderStats& GetRenderStats() const { return RenderData.RenderStats; }
+	const FSceneRenderData& GetRenderData() const { return RenderData; }
 
 	// 불투명 장면은 GBuffer 패스로 렌더링한다.
 	bool RenderGBuffer(FRenderer* Renderer, const FDeferredViewTargets& Targets, uint32 Width, uint32 Height);

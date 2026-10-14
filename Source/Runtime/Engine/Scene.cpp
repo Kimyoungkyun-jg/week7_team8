@@ -1,22 +1,47 @@
 ﻿#include "EnginePCH.h"
 #include "Scene.h"
 #include "Engine/LightSceneProxy.h"
+#include "AmbientLightSceneProxy.h"
+#include "DirectionalLightSceneProxy.h"
+#include "PointLightSceneProxy.h"
+#include "SpotLightSceneProxy.h"
+#include "Component/LightComponent.h"
 #include "Component/PointLightComponent.h"
+#include "Component/AmbientLightComponent.h"
+#include "Component/DirectionalLightComponent.h"
+#include "Component/SpotLightComponent.h"
 
 FScene::~FScene()
 {
 	RemoveAllLights();
 }
 
-void FScene::AddLight(UPointLightComponent* Component)
+void FScene::AddLight(ULightComponent* Component)
 {
 	if (!Component) return;
 	for (FLightSceneProxy* Proxy : Lights)
 		if (Proxy->GetComponent() == Component) return;
-	Lights.Add(new FLightSceneProxy(Component));
+
+	if (Cast<UDirectionalLightComponent>(Component))
+	{
+		Lights.Add(new FDirectionalLightSceneProxy(Component));
+	}
+	else if (Cast<UAmbientLightComponent>(Component))
+	{
+		Lights.Add(new FAmbientLightSceneProxy(Component));
+	}
+	else if (Cast<USpotLightComponent>(Component))
+	{
+		Lights.Add(new FSpotLightSceneProxy(Component));
+	}
+	else if (Cast<UPointLightComponent>(Component))
+	{
+		Lights.Add(new FPointLightSceneProxy(Component));
+	}
+	
 }
 
-void FScene::RemoveLight(UPointLightComponent* Component)
+void FScene::RemoveLight(ULightComponent* Component)
 {
 	for (uint32 Index = 0; Index < Lights.Num(); ++Index)
 	{

@@ -24,17 +24,29 @@ struct FOcclusionMeasureResult
 	uint32 FalseCulls = 0;        // 그중 실제로는 픽셀이 보인 드로우 수
 };
 
+enum class EShadingModelOverride : uint8
+{
+	Default = 0,    // 머티리얼 개별 설정 사용
+	Gouraud,        // 전체 구로 셰이딩 (정점 조명)
+	Lambert,        // 전체 램버트 셰이딩 (픽셀 디퓨즈)
+	Phong           // 전체 블린-퐁 셰이딩 (픽셀 스펙큘러)
+};
+
 class FRenderer
 {
 public:
 	bool Init();
-	void DrawDeferredLighting(const FSceneView& View, const struct FDeferredViewTargets& Targets,
-		const TArray<FPointLightRenderData>& PointLights);
+	//void DrawDeferredLighting(const FSceneView& View, const struct FDeferredViewTargets& Targets,
+		//const TArray<FPointLightRenderData>& PointLights);
 	void DrawToneMap(const struct FDeferredViewTargets& Targets);
+
+	void UpdateLighting(const struct FLightingConstants& InConstant);
+
+	void SetShadingModelOverride(EShadingModelOverride InOverride) { ShadingModelOverride = InOverride; }
+	EShadingModelOverride GetShadingModelOverride() const { return ShadingModelOverride; }
 
 	// 시점 상수 버퍼 및 렌더링 상태 설정
 	void SetupView(const FSceneView& View);
-
 	// ObjViewer uses this forward path. Editor/PIE use SceneRenderer and GBuffer.
 	void RenderAll(const FSceneView& View, const FRenderQueue& InQueue);
 
@@ -61,6 +73,7 @@ private:
 	TUniquePtr<FConstantBuffer> PerObjectCB;
 	TUniquePtr<FConstantBuffer> ViewCB;
 	TUniquePtr<FConstantBuffer> DeferredLightCB;
+	TUniquePtr<FConstantBuffer> LightingCB;
 
 	// 오브젝트 상수 버퍼
 	TUniquePtr<FConstantBuffer> PerObjectSlotCB;
@@ -88,5 +101,5 @@ private:
 	void UpdatePerObjectConstants(const FRenderPacket& RenderPacket, const FMatrix& ViewProjection);
 	void EnsurePerObjectSlotCapacity(uint32 SlotCount);
 
-
+	EShadingModelOverride ShadingModelOverride = EShadingModelOverride::Default;
 };

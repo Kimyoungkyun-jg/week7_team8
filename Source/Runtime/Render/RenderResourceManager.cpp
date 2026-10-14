@@ -34,6 +34,9 @@ constexpr FPipelineTableEntry PipelineTable[] =
 	{ EPSOType::ToneMap,                "Resources/Shader/ToneMapShader.hlsl",              D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, ERasterizerState::SolidNone, EBlendState::Opaque,       EDepthStencilState::Disabled },
 	{ EPSOType::FireBall,               "Resources/Shader/FireBallShader.hlsl",             D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, ERasterizerState::SolidNone, EBlendState::Additive,     EDepthStencilState::ReadOnly },
 	{ EPSOType::Billboard,              "Resources/Shader/BillboardShader.hlsl",            D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, ERasterizerState::SolidNone, EBlendState::AlphaBlend,   EDepthStencilState::ReadOnly },
+	{ EPSOType::StaticMesh_Gouruad,		"Resources/Shader/UberLit_Gouraud.hlsl",			D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, ERasterizerState::SolidBack, EBlendState::Opaque,   EDepthStencilState::Default },
+	{ EPSOType::StaticMesh_Lambert,		"Resources/Shader/UberLit_Lambert.hlsl",			D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, ERasterizerState::SolidBack, EBlendState::Opaque,   EDepthStencilState::Default },
+	{ EPSOType::StaticMesh_Phong,		"Resources/Shader/UberLit_Phong.hlsl",				D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, ERasterizerState::SolidBack, EBlendState::Opaque,   EDepthStencilState::Default }
 };
 
 static_assert(sizeof(PipelineTable) / sizeof(PipelineTable[0]) == static_cast<size_t>(EPSOType::Count));
@@ -103,8 +106,6 @@ FShaderProgram* FRenderResourceManager::GetShaderProgram(const FString& InPath)
 
 	return nullptr;
 }
-
-
 
 void FRenderResourceManager::LoadOrCompileShader(const FString& Path)
 { 

@@ -19,6 +19,8 @@
 #include <unordered_map>
 #include <bit>
 
+#include "LightingConstant.h"
+
 DECLARE_CYCLE_STAT("Draw Render Packets", STAT_DrawRenderPackets);
 
 namespace
@@ -29,10 +31,10 @@ namespace
 		FVector4 CameraPosition; // W: perspective projection
 		FVector4 CameraForward;
 		FVector4 ViewportLightCount;
-		FPointLightRenderData PointLights[MaxDeferredPointLights];
+		//FPointLightRenderData PointLights[MaxDeferredPointLights];
 	};
-	static_assert(sizeof(FPointLightRenderData) == 32);
-	static_assert(sizeof(FDeferredLightConstants) % 16 == 0);
+	//static_assert(sizeof(FPointLightRenderData) == 32);
+	//static_assert(sizeof(FDeferredLightConstants) % 16 == 0);
 	// VSSetConstantBuffers1의 오프셋은 16개 상수(256바이트) 단위여야 하므로 오브젝트마다 256바이트 칸을 쓴다.
 	constexpr uint32 PerObjectSlotConstants = 16;
 	static_assert(sizeof(FPerObjectConstants) <= ObjectSlotBytes);
@@ -58,8 +60,10 @@ bool FRenderer::Init()
 {
 	bUsePerObjectSlots = RenderCommand::SupportsConstantBufferOffsets();
 	PerObjectCB = RenderCommand::CreateConstantBuffer(sizeof(FPerObjectConstants));
-	ViewCB = RenderCommand::CreateConstantBuffer(sizeof(FMatrix));
+	ViewCB = RenderCommand::CreateConstantBuffer(sizeof(FViewConstants));
 	DeferredLightCB = RenderCommand::CreateConstantBuffer(sizeof(FDeferredLightConstants));
+
+	LightingCB = RenderCommand::CreateConstantBuffer(sizeof(FLightingConstants));
 
 	GPUOcclusion.Init();   // 실패해도 오클루전만 못 쓸 뿐 렌더링은 된다
 
@@ -91,7 +95,14 @@ void FRenderer::EnsurePerObjectSlotCapacity(uint32 SlotCount)
 void FRenderer::SetupView(const FSceneView& View)
 {
 	bCurrentWireframe = View.bIsWireframe;
-	RenderCommand::UpdateBufferData(ViewCB.get(), &View.ViewProjectionMatrix);
+	//RenderCommand::UpdateBufferData(ViewCB.get(), &View.ViewProjectionMatrix);
+	
+	FViewConstants ViewConstants{};
+	ViewConstants.VP = View.ViewProjectionMatrix;
+	ViewConstants.CamPos = View.ViewLocation;
+	ViewConstants.Pad = 0.0f;
+
+	RenderCommand::UpdateBufferData(ViewCB.get(), &ViewConstants);
 }
 
 // 전체 렌더 큐 렌더링
@@ -109,47 +120,47 @@ void FRenderer::RenderOpaque(const FSceneView& View, const FRenderQueue& InQueue
 	DrawPackets(InQueue, 0, InQueue.GetFirstTranslucentIndex(), View.ViewProjectionMatrix, bGBufferPass);
 }
 
-void FRenderer::DrawDeferredLighting(const FSceneView& View, const FDeferredViewTargets& Targets,
-	const TArray<FPointLightRenderData>& PointLights)
-{
-	FPipelineState* PSO = FRenderResourceManager::GetPSO(EPSOType::DeferredLighting);
-	if (!PSO || !PSO->Shader || !PSO->Shader->VertexShader || !PSO->Shader->PixelShader || !DeferredLightCB)
-		return;
-	FDeferredLightConstants Constants{};
-	Constants.InverseViewProjection = View.ViewProjectionMatrix.Inverse();
-	Constants.CameraPosition = FVector4(View.ViewLocation.X, View.ViewLocation.Y,
-		View.ViewLocation.Z, View.bIsPerspective ? 1.0f : 0.0f);
-	Constants.CameraForward = FVector4(View.ViewForward.X, View.ViewForward.Y, View.ViewForward.Z, 0.0f);
-	const uint32 LightCount = std::min<uint32>(static_cast<uint32>(PointLights.Num()), MaxDeferredPointLights);
-	Constants.ViewportLightCount = FVector4(
-		static_cast<float>(Targets.SceneColor->GetWidth()),
-		static_cast<float>(Targets.SceneColor->GetHeight()),
-		static_cast<float>(LightCount), 0.0f);
-	for (uint32 Index = 0; Index < LightCount; ++Index)
-		Constants.PointLights[Index] = PointLights[Index];
-	RenderCommand::UpdateBufferData(DeferredLightCB.get(), &Constants, sizeof(Constants));
-
-	RenderCommand::BindPipelineState(*PSO);
-	RenderCommand::BindConstantBuffer(0, DeferredLightCB.get(), EShaderBindFlagBits::Pixel);
-	RenderCommand::BindVertexBuffer(nullptr);
-	RenderCommand::BindShaderResource(0, Targets.BaseColorMetallic.get(), EShaderBindFlagBits::Pixel);
-	RenderCommand::BindShaderResource(1, Targets.NormalRoughness.get(), EShaderBindFlagBits::Pixel);
-	RenderCommand::BindShaderResource(2, Targets.Depth.get(), EShaderBindFlagBits::Pixel);
-	RenderCommand::Draw(3);
-	if (LightCount > 0)
-	{
-		FPipelineState* AdditivePSO = FRenderResourceManager::GetPSO(EPSOType::DeferredPointLighting);
-		if (AdditivePSO && AdditivePSO->Shader && AdditivePSO->Shader->VertexShader && AdditivePSO->Shader->PixelShader)
-		{
-			Constants.ViewportLightCount.W = 1.0f;
-			RenderCommand::UpdateBufferData(DeferredLightCB.get(), &Constants, sizeof(Constants));
-			RenderCommand::BindPipelineState(*AdditivePSO);
-			RenderCommand::Draw(3);
-		}
-	}
-
-	RenderCommand::UnbindShaderResources(0, 3, EShaderBindFlagBits::Pixel);
-}
+//void FRenderer::DrawDeferredLighting(const FSceneView& View, const FDeferredViewTargets& Targets,
+//	const TArray<FPointLightRenderData>& PointLights)
+//{
+//	FPipelineState* PSO = FRenderResourceManager::GetPSO(EPSOType::DeferredLighting);
+//	if (!PSO || !PSO->Shader || !PSO->Shader->VertexShader || !PSO->Shader->PixelShader || !DeferredLightCB)
+//		return;
+//	FDeferredLightConstants Constants{};
+//	Constants.InverseViewProjection = View.ViewProjectionMatrix.Inverse();
+//	Constants.CameraPosition = FVector4(View.ViewLocation.X, View.ViewLocation.Y,
+//		View.ViewLocation.Z, View.bIsPerspective ? 1.0f : 0.0f);
+//	Constants.CameraForward = FVector4(View.ViewForward.X, View.ViewForward.Y, View.ViewForward.Z, 0.0f);
+//	const uint32 LightCount = std::min<uint32>(static_cast<uint32>(PointLights.Num()), MaxDeferredPointLights);
+//	Constants.ViewportLightCount = FVector4(
+//		static_cast<float>(Targets.SceneColor->GetWidth()),
+//		static_cast<float>(Targets.SceneColor->GetHeight()),
+//		static_cast<float>(LightCount), 0.0f);
+//	for (uint32 Index = 0; Index < LightCount; ++Index)
+//		Constants.PointLights[Index] = PointLights[Index];
+//	RenderCommand::UpdateBufferData(DeferredLightCB.get(), &Constants, sizeof(Constants));
+//
+//	RenderCommand::BindPipelineState(*PSO);
+//	RenderCommand::BindConstantBuffer(0, DeferredLightCB.get(), EShaderBindFlagBits::Pixel);
+//	RenderCommand::BindVertexBuffer(nullptr);
+//	RenderCommand::BindShaderResource(0, Targets.BaseColorMetallic.get(), EShaderBindFlagBits::Pixel);
+//	RenderCommand::BindShaderResource(1, Targets.NormalRoughness.get(), EShaderBindFlagBits::Pixel);
+//	RenderCommand::BindShaderResource(2, Targets.Depth.get(), EShaderBindFlagBits::Pixel);
+//	RenderCommand::Draw(3);
+//	if (LightCount > 0)
+//	{
+//		FPipelineState* AdditivePSO = FRenderResourceManager::GetPSO(EPSOType::DeferredPointLighting);
+//		if (AdditivePSO && AdditivePSO->Shader && AdditivePSO->Shader->VertexShader && AdditivePSO->Shader->PixelShader)
+//		{
+//			Constants.ViewportLightCount.W = 1.0f;
+//			RenderCommand::UpdateBufferData(DeferredLightCB.get(), &Constants, sizeof(Constants));
+//			RenderCommand::BindPipelineState(*AdditivePSO);
+//			RenderCommand::Draw(3);
+//		}
+//	}
+//
+//	RenderCommand::UnbindShaderResources(0, 3, EShaderBindFlagBits::Pixel);
+//}
 
 void FRenderer::DrawToneMap(const FDeferredViewTargets& Targets)
 {
@@ -164,6 +175,11 @@ void FRenderer::DrawToneMap(const FDeferredViewTargets& Targets)
 	RenderCommand::Draw(3);
 
 	RenderCommand::UnbindShaderResources(0, 2, EShaderBindFlagBits::Pixel);
+}
+
+void FRenderer::UpdateLighting(const FLightingConstants& InConstant)
+{
+	RenderCommand::UpdateBufferData(LightingCB.get(), &InConstant);
 }
 
 // 반투명 요소 렌더링
@@ -186,7 +202,8 @@ void FRenderer::DrawStaticGroups(bool bGBufferPass)
 		[](const FStaticDrawGroup* A, const FStaticDrawGroup* B) { return MakeGroupKey(*A) < MakeGroupKey(*B); });
 
 	SCOPE_CYCLE_COUNTER(STAT_DrawRenderPackets);
-	RenderCommand::BindConstantBuffer(0, ViewCB.get(), EShaderBindFlagBits::Vertex);
+	RenderCommand::BindConstantBuffer(0, ViewCB.get(), EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
+	RenderCommand::BindConstantBuffer(3, LightingCB.get(), EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
 
 	UMaterial* BoundMaterial = nullptr;
 	for (const FStaticDrawGroup* Group : StaticGroups)
@@ -227,7 +244,8 @@ void FRenderer::DrawPackets(const FRenderQueue& InQueue, uint32 Begin, uint32 En
 	UMaterial* LastMaterial = nullptr;
 	uint8 LastLODIndex = 0;
 
-	RenderCommand::BindConstantBuffer(0, ViewCB.get(), EShaderBindFlagBits::Vertex);
+	RenderCommand::BindConstantBuffer(0, ViewCB.get(), EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
+	RenderCommand::BindConstantBuffer(3, LightingCB.get(), EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
 
 	for (uint32 k = Begin; k < End; ++k)
 	{
@@ -435,11 +453,35 @@ void FRenderer::EndObjectConstants()
 void FRenderer::BindMaterial(UMaterial* material, bool bInWireframe, bool bGBufferPass)
 {
 	EPSOType PSOType = material->PSOType;
+
+	const bool bIsLitMesh = (PSOType == EPSOType::StaticMesh_Opaque ||
+							 PSOType == EPSOType::StaticMesh_Gouruad ||
+							 PSOType == EPSOType::StaticMesh_Lambert ||
+							 PSOType == EPSOType::StaticMesh_Phong);
+
+	if (bIsLitMesh && ShadingModelOverride != EShadingModelOverride::Default)
+	{
+		switch (ShadingModelOverride)
+		{
+		case EShadingModelOverride::Gouraud:
+			PSOType = EPSOType::StaticMesh_Gouruad;
+			break;
+		case EShadingModelOverride::Lambert:
+			PSOType = EPSOType::StaticMesh_Lambert;
+			break;
+		case EShadingModelOverride::Phong:
+			PSOType = EPSOType::StaticMesh_Phong;
+			break;
+		default:
+			break;
+		}
+	}
+
 	if (bGBufferPass && PSOType == EPSOType::StaticMesh_Opaque)
 	{
 		PSOType = EPSOType::StaticMesh_GBuffer;
 	}
-	else if (bInWireframe && PSOType == EPSOType::StaticMesh_Opaque)
+	else if (bInWireframe && bIsLitMesh)
 	{
 		PSOType = EPSOType::StaticMesh_Wireframe;
 	}
@@ -451,8 +493,12 @@ void FRenderer::BindMaterial(UMaterial* material, bool bInWireframe, bool bGBuff
 		if (bGBufferPass && bInWireframe)
 			RenderCommand::SetRasterizerState(ERasterizerState::Wireframe);
 	}
-	// 텍스처와 샘플러 바인딩
-	for (size_t i = 0; i < material->Textures.size(); i++)
+	// 텍스처와 샘플러 바인딩 (Slot 0: BaseColor, Slot 1: NormalMap)
+	UTexture2D* DiffuseTex = (material->Textures.Num() > 0) ? material->Textures[0] : nullptr;
+	UTexture2D* NormalTex = (material->Textures.Num() > 1) ? material->Textures[1] : nullptr;
+	RenderCommand::BindShaderResource(0, DiffuseTex, EShaderBindFlagBits::Pixel);
+	RenderCommand::BindShaderResource(1, NormalTex, EShaderBindFlagBits::Pixel);
+	for (size_t i = 2; i < material->Textures.size(); i++)
 	{
 		RenderCommand::BindShaderResource(static_cast<uint32>(i), material->Textures[i], EShaderBindFlagBits::Pixel);
 	}
@@ -473,13 +519,18 @@ void FRenderer::UpdateMaterialParams(const FRenderPacket& RenderPacket)
 	case EPSOType::StaticMesh_Opaque:
 	case EPSOType::StaticMesh_Translucent:
 	case EPSOType::StaticMesh_Wireframe:
+	case EPSOType::StaticMesh_Gouruad:
+	case EPSOType::StaticMesh_Lambert:
+	case EPSOType::StaticMesh_Phong:
 	{
 		const float TotalTime = EngineTimer::GetTotalTime();
 		FStaticMeshMaterialParams Params{};
 		Params.BaseColor = RenderPacket.Material->BaseColor;
+		Params.SpecularColor = RenderPacket.Material->SpecularColor;
+		Params.Shininess = RenderPacket.Material->Shininess;
 		Params.UVOffset = RenderPacket.Material->UVScrollSpeed * TotalTime;
 		RenderCommand::UpdateBufferData(RenderPacket.Material->ParamBuffer.get(), &Params, sizeof(FStaticMeshMaterialParams));
-		RenderCommand::BindConstantBuffer(1, RenderPacket.Material->ParamBuffer.get(), EShaderBindFlagBits::Pixel);
+		RenderCommand::BindConstantBuffer(1, RenderPacket.Material->ParamBuffer.get(), EShaderBindFlagBits::Pixel | EShaderBindFlagBits::Vertex);
 		break;
 	}
 	case EPSOType::Particle_AlphaBlend:

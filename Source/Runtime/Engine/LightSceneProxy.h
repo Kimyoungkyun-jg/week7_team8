@@ -1,31 +1,37 @@
 #pragma once
 
 #include "Math/Vector4.h"
+#include "Render/LightingConstant.h"
+#include <algorithm>
 
-class UPointLightComponent;
-
-struct FPointLightRenderData
+enum class ELightType
 {
-	FVector4 PositionRadius;
-	FVector4 ColorIntensity;
+	None,
+	Ambient,
+	Directional,
+	Point,
+	Spot
 };
 
-inline constexpr uint32 MaxDeferredPointLights = 32;
+class ULightComponent;
 
 // 월드의 라이트 컴포넌트를 렌더러가 읽을 수 있는 값으로 복사한다.
 class FLightSceneProxy
 {
 public:
-	explicit FLightSceneProxy(UPointLightComponent* InComponent) : Component(InComponent) { Update(); }
-	void Update();
-	UPointLightComponent* GetComponent() const { return Component; }
-	bool IsEnabled() const { return bEnabled; }
-	bool IsShown(bool bGameView) const { return bVisible && !(bGameView && bHiddenInGame); }
-	const FPointLightRenderData& GetRenderData() const { return RenderData; }
+	FLightSceneProxy() = default;
+	FLightSceneProxy(ULightComponent* InComponent) : Component(InComponent) { Update(); }
+	virtual ~FLightSceneProxy() = default;
 
-private:
-	UPointLightComponent* Component = nullptr;
-	FPointLightRenderData RenderData{};
+	virtual void Update();
+	virtual ELightType GetLightType() const;
+	ULightComponent* GetComponent() const { return Component; }
+	bool IsEnabled() const { return bEnabled; }
+	bool IsShown(bool bGameView) const { return bVisible && !(bGameView && bHiddenInGame); }	
+
+protected:
+	ULightComponent* Component = nullptr;	
+
 	bool bEnabled = false;
 	bool bVisible = true;
 	bool bHiddenInGame = false;

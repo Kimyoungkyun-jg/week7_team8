@@ -32,6 +32,8 @@ UMaterial* UMaterial::CreateInstance(const UMaterial* Source)
 
 	Instance->Textures = Source->Textures;
 	Instance->BaseColor = Source->BaseColor;
+	Instance->SpecularColor = Source->SpecularColor;
+	Instance->Shininess = Source->Shininess;
 	Instance->UVScrollSpeed = Source->UVScrollSpeed;
 	Instance->PSOType = Source->PSOType;
 	Instance->SamplerState = Source->SamplerState;

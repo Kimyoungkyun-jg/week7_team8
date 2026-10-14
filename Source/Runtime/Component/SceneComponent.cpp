@@ -104,6 +104,11 @@ FMatrix USceneComponent::GetWorldMatrix() const
 	return LocalMatrix;
 }
 
+FVector USceneComponent::GetForwardVector() const
+{
+	return GetTransform().GetForward();
+}
+
 void USceneComponent::MarkTransformDirty()
 {
 	OnTransformDirty();         
