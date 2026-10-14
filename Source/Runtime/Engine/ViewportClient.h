@@ -24,6 +24,7 @@ enum class EViewportMode : uint8
 	Lit_Lambert,
 	Lit_Phong,
 	Unlit,
+	WorldNormal,
 	None,
 };
 

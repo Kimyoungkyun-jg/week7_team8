@@ -730,6 +730,19 @@ bool UEditorEngine::RenderSceneFrame(FDeferredViewTargets& Targets, const FScene
 	if (!Width || !Height || !Targets.IsValidFor(Width, Height))
 		return false;
 
+	if (SceneView.bShowWorldNormal)
+	{
+		RenderCommand::BeginRenderPass(
+			ColorTarget, DepthTarget, Width, Height);
+
+		if (Options.bDrawPrimitives)
+		{
+			SceneRenderer.RenderForwardLighting(Renderer);
+		}
+
+		return true;
+	}
+
 	//    GBuffer -> HDR lighting -> skybox and tone mapping.
 	// or Forward lighting -> skybox and tone mapping.
 	if (Options.bDrawPrimitives)

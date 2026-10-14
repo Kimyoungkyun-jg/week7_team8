@@ -25,6 +25,7 @@ enum class EPSOType : uint8
 	StaticMesh_ForwardGouraud,
 	StaticMesh_ForwardPhong,
 	StaticMesh_ForwardUnLit,
+	StaticMesh_WorldNormal,
 	Count,
 };
 

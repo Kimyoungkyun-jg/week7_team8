@@ -72,6 +72,7 @@ private:
 	uint32 PerObjectSlotCapacity = 0;
 	bool bUsePerObjectSlots = false;
 	bool bCurrentWireframe = false;
+	bool bCurrentWorldNormal = false;
 	ELightingModel CurrentLightingModel = ELightingModel::Lambert;
 
 	// 측정 전용 자원

@@ -42,6 +42,7 @@ struct FSceneView
 	bool bIsPerspective = true;
 	bool bIsWireframe = false;
 	bool bGameView = false;
+	bool bShowWorldNormal = false;
 	ELightingModel LightingModel = ELightingModel::Lambert; // 기본 모델
 
 	// 기존 뷰 컨텍스트 변환

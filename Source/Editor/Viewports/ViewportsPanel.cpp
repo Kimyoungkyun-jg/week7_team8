@@ -272,7 +272,7 @@ void FViewportsPanel::OnRender() {
 		ImGui::SameLine();
 		// 장면 채우기 모드 설정
 		int Mode = static_cast<int>(Client->GetViewportMode());
-		const char *Labels[] = {"Solid", "Wireframe", "Scene Depth","Lit_Gouraud","Lit_Lambert","Lit_Phong","Unlit", };
+		const char *Labels[] = {"Solid", "Wireframe", "Scene Depth","Lit_Gouraud","Lit_Lambert","Lit_Phong","Unlit", "World Normal"};
 		ImGui::SetNextItemWidth(120.0f);
 		if (ImGui::Combo("##FillMode", &Mode, Labels, IM_ARRAYSIZE(Labels))) {
 			Client->SetViewportMode(static_cast<EViewportMode>(Mode));

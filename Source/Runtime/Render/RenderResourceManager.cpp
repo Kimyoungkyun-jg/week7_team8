@@ -38,6 +38,7 @@ constexpr FPipelineTableEntry PipelineTable[] =
 	{ EPSOType::StaticMesh_ForwardGouraud, "Resources/Shader/UberLit_Gouraud.hlsl", D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, ERasterizerState::SolidBack, EBlendState::Opaque,  EDepthStencilState::Default },
 	{ EPSOType::StaticMesh_ForwardPhong, "Resources/Shader/UberLit_Phong.hlsl", D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, ERasterizerState::SolidBack, EBlendState::Opaque,  EDepthStencilState::Default },
 	{ EPSOType::StaticMesh_ForwardUnLit, "Resources/Shader/UberLit_Unlit.hlsl", D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, ERasterizerState::SolidBack, EBlendState::Opaque,  EDepthStencilState::Default },
+	{ EPSOType::StaticMesh_WorldNormal, "Resources/Shader/WorldNormalShader.hlsl", D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, ERasterizerState::SolidBack, EBlendState::Opaque,  EDepthStencilState::Default },
 };
 
 static_assert(sizeof(PipelineTable) / sizeof(PipelineTable[0]) == static_cast<size_t>(EPSOType::Count));

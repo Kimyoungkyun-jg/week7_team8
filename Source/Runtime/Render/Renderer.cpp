@@ -107,6 +107,7 @@ void FRenderer::EnsurePerObjectSlotCapacity(uint32 SlotCount)
 void FRenderer::SetupView(const FSceneView& View)
 {
 	bCurrentWireframe = View.bIsWireframe;
+	bCurrentWorldNormal = View.bShowWorldNormal;
 	CurrentLightingModel = View.LightingModel;
 	RenderCommand::UpdateBufferData(ViewCB.get(), &View.ViewProjectionMatrix);
 }
@@ -487,6 +488,20 @@ void FRenderer::EndObjectConstants()
 // 머티리얼 파이프라인 상태 및 텍스처 바인딩
 void FRenderer::BindMaterial(UMaterial* material, bool bInWireframe, bool bGBufferPass)
 {
+	// World Normal 모드에서는 조명 셰이더 대신 전용 셰이더를 사용한다.
+	if (!bGBufferPass &&
+		bCurrentWorldNormal &&
+		material->PSOType == EPSOType::StaticMesh_Opaque)
+	{
+		if (FPipelineState* PSO =
+			FRenderResourceManager::GetPSO(EPSOType::StaticMesh_WorldNormal))
+		{
+			RenderCommand::BindPipelineState(*PSO);
+			return;
+		}
+	}
+
+
 	EPSOType PSOType = material->PSOType;
 	if (!bGBufferPass && PSOType == EPSOType::StaticMesh_Opaque)
 	{
