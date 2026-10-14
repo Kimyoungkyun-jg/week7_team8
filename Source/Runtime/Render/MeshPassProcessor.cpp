@@ -108,7 +108,6 @@ namespace
 			}
 			else if (OverrideParams && OverrideSize <= Batch.MaterialData.size())
 			{
-				return false; 
 				std::memcpy(Batch.MaterialData.data(), OverrideParams, OverrideSize);
 				Batch.MaterialDataSize = OverrideSize;
 			}

@@ -143,12 +143,13 @@ float4 mainPS(FPSInput Input) : SV_Target
 
         float Distance = sqrt(max(DistanceSquared, 1.0e-6f));
         float3 L = ToLight / Distance;
-        float ConeCos = dot(-L, normalize(Light.DirectionOuterCos.xyz));
-        float ConeFade = smoothstep(Light.DirectionOuterCos.w, Light.Parameters.x, ConeCos);
-        float RadiusFade = pow(saturate(1.0f - Distance / Light.PositionRadius.w),
-            max(Light.Parameters.y, 0.0f));
-        float3 Radiance = Light.ColorIntensity.rgb * max(Light.ColorIntensity.w, 0.0f)
-            * ConeFade * RadiusFade;
+		float ConeCos = dot(-L, normalize(Light.DirectionOuterCos.xyz));
+		float ConeFade = pow(smoothstep(Light.DirectionOuterCos.w, Light.Parameters.x, ConeCos),
+			max(Light.Parameters.y, 0.0001f));
+		float DistanceFactor = saturate(1.0f - Distance / Light.PositionRadius.w);
+		float RadiusFade = DistanceFactor * DistanceFactor;
+		float3 Radiance = Light.ColorIntensity.rgb * max(Light.ColorIntensity.w, 0.0f)
+			* ConeFade * RadiusFade;
         AccumulateLocalLight(LocalDiffuse, LocalSpecular,
             Albedo, Metallic, Roughness, N, V, L, Radiance);
     }
