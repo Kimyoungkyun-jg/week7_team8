@@ -24,6 +24,35 @@ USceneComponent::~USceneComponent()
 	DetachFromParent();
 }
 
+void USceneComponent::DestroyComponent()
+{
+	if (!AttachChildren.IsEmpty())
+	{
+		USceneComponent* Parent = GetAttachParent();
+		const FMatrix ParentWorld = Parent ? Parent->GetWorldMatrix() : FMatrix::Identity;
+		const float Determinant = ParentWorld.Determinant();
+		if (!std::isfinite(Determinant) || Determinant == 0.0f)
+		{
+			HTR_LOG(Warning, "DestroyComponent: parent transform is not invertible.");
+			return;
+		}
+		const FMatrix ParentInverse = ParentWorld.Inverse();
+		const FQuat ParentRotationInverse = Parent ? Parent->GetWorldRotation().Quaternion().Inverse() : FQuat::Identity();
+		const FVector ParentScale = Parent ? Parent->GetWorldScale3D() : FVector::OneVector;
+		const TArray<USceneComponent*> Children = AttachChildren;
+		for (USceneComponent* Child : Children)
+		{
+			FTransform Relative;
+			Relative.Location = ParentInverse.TransformPosition(Child->GetWorldLocation());
+			Relative.Rotation = (ParentRotationInverse * Child->GetWorldRotation().Quaternion()).ToFRotator();
+			Relative.Scale = Child->GetWorldScale3D() / ParentScale;
+			Child->SetupAttachment(Parent);
+			Child->SetTransform(Relative);
+		}
+	}
+	Super::DestroyComponent();
+}
+
 void USceneComponent::SetupAttachment(USceneComponent* InParent)
 {
 	if (InParent == this || AttachParent == InParent) return;

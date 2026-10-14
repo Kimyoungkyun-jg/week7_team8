@@ -34,6 +34,7 @@ public:
 
 	USceneComponent() = default;
 	virtual ~USceneComponent() override;
+	void DestroyComponent() override;
 
 	// Get & Set
 	const FVector& GetRelativeLocation() const { return Transform.Location; }

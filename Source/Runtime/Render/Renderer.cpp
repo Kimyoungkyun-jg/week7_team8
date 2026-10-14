@@ -79,19 +79,35 @@ void FRenderer::DispatchCompute(ID3D11ComputeShader* Shader, ID3D11Buffer* Const
 	std::span<ID3D11UnorderedAccessView* const> UAVs,
 	uint32 GroupsX, uint32 GroupsY, uint32 GroupsZ, ID3D11SamplerState* Sampler)
 {
+	const std::array<ID3D11ShaderResourceView*, 1> SRVs = { SRV };
+	DispatchCompute(Shader, Constants, SRVSlot, SRVs, UAVs, GroupsX, GroupsY, GroupsZ, Sampler);
+}
+
+void FRenderer::ClearUnorderedAccess(ID3D11UnorderedAccessView* UAV, uint32 Value)
+{
+	if (!UAV) return;
+	const uint32 Values[4] = {Value, Value, Value, Value};
+	RenderCommand::GetContext()->ClearUnorderedAccessViewUint(UAV, Values);
+}
+
+void FRenderer::DispatchCompute(ID3D11ComputeShader* Shader, ID3D11Buffer* Constants,
+	uint32 SRVSlot, std::span<ID3D11ShaderResourceView* const> SRVs,
+	std::span<ID3D11UnorderedAccessView* const> UAVs,
+	uint32 GroupsX, uint32 GroupsY, uint32 GroupsZ, ID3D11SamplerState* Sampler)
+{
 	if (!Shader || !GroupsX || !GroupsY || !GroupsZ || UAVs.empty()) return;
 	ID3D11DeviceContext* Context = RenderCommand::GetContext();
 	Context->CSSetShader(Shader, nullptr, 0);
 	Context->CSSetConstantBuffers(0, 1, &Constants);
-	Context->CSSetShaderResources(SRVSlot, 1, &SRV);
+	Context->CSSetShaderResources(SRVSlot, static_cast<UINT>(SRVs.size()), SRVs.data());
 	Context->CSSetUnorderedAccessViews(0, static_cast<UINT>(UAVs.size()), UAVs.data(), nullptr);
 	if (Sampler) Context->CSSetSamplers(0, 1, &Sampler);
 	Context->Dispatch(GroupsX, GroupsY, GroupsZ);
 	
-	ID3D11ShaderResourceView* NullSRV = nullptr;
+	const std::vector<ID3D11ShaderResourceView*> NullSRVs(SRVs.size(), nullptr);
 	ID3D11Buffer* NullCB = nullptr;
 	ID3D11SamplerState* NullSampler = nullptr;
-	Context->CSSetShaderResources(SRVSlot, 1, &NullSRV);
+	Context->CSSetShaderResources(SRVSlot, static_cast<UINT>(NullSRVs.size()), NullSRVs.data());
 	Context->CSSetConstantBuffers(0, 1, &NullCB);
 	Context->CSSetSamplers(0, 1, &NullSampler);
 	Context->CSSetShader(nullptr, nullptr, 0);

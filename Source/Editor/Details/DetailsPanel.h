@@ -24,6 +24,7 @@ public:
 	}
 
 	void SetWorld(UWorld* InWorld) { World = InWorld; }
+	UActorComponent* GetSelectedComponent() const { return SelectedComponent; }
 
 	ImFont* GetCustomFont() { return CustomFont; }
 

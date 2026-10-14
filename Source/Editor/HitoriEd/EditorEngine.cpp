@@ -202,10 +202,10 @@ bool UEditorEngine::Init() {
 
 	OutlinerPanel = EditorUI->AddEditorPanel<FOutlinerPanel>();
 	OutlinerPanel->SetWorld(EditorWorld);
-	OutlinerPanel->SetSelectionCallback([this](UPrimitiveComponent *Primitive) {
-		Gizmo->SetTarget(Primitive);
-		Outline->SetTarget(Primitive);
-		DetailsPanel->SetTarget(Primitive);
+	OutlinerPanel->SetSelectionCallback([this](USceneComponent *Component) {
+		Gizmo->SetTarget(Component);
+		Outline->SetTarget(Cast<UPrimitiveComponent>(Component));
+		DetailsPanel->SetTarget(Component);
 	});
 
 	OutlinerPanel->SetDeleteActorCallback(
@@ -344,7 +344,10 @@ void UEditorEngine::UpdateViewportState(const float DeltaTime) {
 	UpdateInputOwner();
 	if (InputOwnerPIEInstance == -1 && !ImGui::GetIO().WantTextInput &&
 		FInputSystem::IsKeyPressed(EKeyCode::Delete)) {
-		DeleteActor(OutlinerPanel->GetSelectedActor());
+		if (UActorComponent* Component = DetailsPanel->GetSelectedComponent())
+			DeleteComponent(Component);
+		else
+			DeleteActor(OutlinerPanel->GetSelectedActor());
 	}
 	PendingWheelDelta = FInputSystem::GetWheelDelta();
 	const float MoveSpeed = 10.0f * SettingsPanel->GetSettings().CameraSpeed;
@@ -704,7 +707,7 @@ void UEditorEngine::RenderGameFrame(FGameViewportClient* GameClient, const FScen
 	{
 		Options.RenderingPath = SettingsPanel->GetSettings().RenderingPath;
 		Options.LightingModel = SettingsPanel->GetSettings().LightingModel;
-		Options.bEnableClusteredLightCulling = SettingsPanel->GetSettings().bEnableClusteredLightCulling;
+		Options.bEnableTiledLightCulling = SettingsPanel->GetSettings().bEnableTiledLightCulling;
 	}
 	FSceneViewTargets& Targets = GameClient->GetViewTargets();
 	const bool bRendered = RenderScene(Targets, SceneView, SceneRenderer, GameClient->GetWorld(), Options,
@@ -961,9 +964,10 @@ void UEditorEngine::RenderFrame(FEditorViewportClient *ViewClient,
 	Options.bEnableFXAA = SettingsPanel->GetSettings().bEnableFXAA;
 	Options.RenderingPath = SettingsPanel->GetSettings().RenderingPath; // Deferred 로 할지 아님 Forward로 할지
 	Options.LightingModel = SettingsPanel->GetSettings().LightingModel; // Forward에서 goraud, lambert, phong 선택
-	Options.bEnableClusteredLightCulling = SettingsPanel->GetSettings().bEnableClusteredLightCulling;
+	Options.bEnableTiledLightCulling = SettingsPanel->GetSettings().bEnableTiledLightCulling;
 	Options.bShowSceneDepth = !bIsPIE && ViewClient->IsSceneDepth();
 	Options.bShowWorldNormal = !bIsPIE && ViewClient->IsWorldNormal();
+	Options.bShowLightCulling = !bIsPIE && ViewClient->IsLightCulling();
 	Options.SceneDepthRange = ViewClient->GetMaxRange();
 
 	FSceneViewTargets& Targets = ViewClient->GetViewTargets();
@@ -1083,6 +1087,16 @@ void UEditorEngine::DeleteActor(AActor *Actor) {
 	OutlinerPanel->SelectActor(nullptr);
 
 	Actor->Destroy();
+}
+
+void UEditorEngine::DeleteComponent(UActorComponent* Component)
+{
+	if (!Component || !Component->CanDeleteFromEditor()) return;
+	AActor* Owner = Component->GetOwner();
+	if (Owner->GetWorld() != EditorWorld) return;
+	Gizmo->EndDrag();
+	OutlinerPanel->SelectActor(Owner);
+	Component->DestroyComponent();
 }
 
 // 씬 변경으로 무효화된 에디터의 선택 참조를 모두 해제한다.

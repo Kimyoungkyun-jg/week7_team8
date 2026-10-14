@@ -56,7 +56,7 @@ void FSettingsPanel::OnRender()
 	ImGui::SetNextItemWidth(200.0f);
 	if (ImGui::Combo("Lighting Model", &LightingModelIndex, LightingModels, IM_ARRAYSIZE(LightingModels)))
 		Settings.LightingModel = static_cast<ELightingModel>(LightingModelIndex);
-	ImGui::Checkbox("Clustered Light Culling", &Settings.bEnableClusteredLightCulling);
+	ImGui::Checkbox("Tiled Light Culling", &Settings.bEnableTiledLightCulling);
 	ImGui::TextDisabled("Forward Lambert/Phong only; off evaluates all visible local lights.");
 	ImGui::Checkbox("Use Sky Light", &Settings.bUseSkyLight);
 	bool bSkyLightReady = false;
@@ -177,7 +177,7 @@ bool FSettingsPanel::SaveSettings() const
 	File << "DrawPSGrid=" << Settings.bDrawPSGrid << "\n";
 	File << "SceneDepthMaxRange=" << Settings.SceneDepthMaxRange << "\n";
 	File << "EnableFXAA=" << Settings.bEnableFXAA << "\n";
-	File << "EnableClusteredLightCulling=" << Settings.bEnableClusteredLightCulling << "\n";
+	File << "EnableTiledLightCulling=" << Settings.bEnableTiledLightCulling << "\n";
 	File << "UseSkyLight=" << Settings.bUseSkyLight << "\n";
 	File << "RenderingPath=" << (Settings.RenderingPath == ERenderingPath::Forward ? "Forward" : "Deferred") << "\n";
 	File << "LightingModel=" << (Settings.LightingModel == ELightingModel::Gouraud ? "Gouraud" :
@@ -312,7 +312,7 @@ bool FSettingsPanel::LoadSettings()
 				else if (Key == "DrawPSGrid") Settings.bDrawPSGrid = std::stoi(ValueStr);
 				else if (Key == "SceneDepthMaxRange") Settings.SceneDepthMaxRange = std::stof(ValueStr);
 				else if (Key == "EnableFXAA") Settings.bEnableFXAA = std::stoi(ValueStr);
-				else if (Key == "EnableClusteredLightCulling") Settings.bEnableClusteredLightCulling = std::stoi(ValueStr);
+				else if (Key == "EnableTiledLightCulling" || Key == "EnableClusteredLightCulling") Settings.bEnableTiledLightCulling = std::stoi(ValueStr);
 				else if (Key == "UseSkyLight") Settings.bUseSkyLight = std::stoi(ValueStr) != 0;
 				else if (Key == "RenderingPath")
 				{

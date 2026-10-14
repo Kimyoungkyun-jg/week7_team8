@@ -110,6 +110,7 @@ public:
   bool IsWireframe() const { return ViewportMode == EViewportMode::Wireframe; }
   bool IsSceneDepth() const { return ViewportMode == EViewportMode::SceneDepth; }
   bool IsWorldNormal() const { return ViewportMode == EViewportMode::WorldNormal; }
+  bool IsLightCulling() const { return ViewportMode == EViewportMode::LightCulling; }
   EViewportMode GetViewportMode() const { return ViewportMode; }
   void SetViewportMode(const EViewportMode InViewportMode) { ViewportMode = InViewportMode; }
   float GetMaxRange() const { return MaxRange; }

@@ -23,6 +23,8 @@ enum class EPSOType : uint8
 	Billboard,
 	StaticMesh_Forward,
 	StaticMesh_WorldNormal,
+	StaticMesh_DepthOnly,
+	LightCullingDebug,
 	Count
 };
 

@@ -20,8 +20,8 @@ bool FSceneLightResources::Init()
 	if (bInitialized) return true;
 	ForwardLightCB = RenderCommand::CreateConstantBuffer(sizeof(FForwardLightingConstants));
 	DeferredLightCB = RenderCommand::CreateConstantBuffer(sizeof(FDeferredLightConstants));
-	if (!ForwardClusterGrid.Init())
-		HTR_LOG(Warning, "Forward cluster compute shader unavailable");
+	if (!ForwardTileGrid.Init())
+		HTR_LOG(Warning, "Forward tile culling compute shader unavailable");
 	bInitialized = ForwardLightCB && DeferredLightCB;
 	return bInitialized;
 }

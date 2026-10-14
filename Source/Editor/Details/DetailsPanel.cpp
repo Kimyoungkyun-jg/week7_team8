@@ -1078,6 +1078,7 @@ void FDetailsPanel::DrawAddComponentPopup(AActor * Owner)
 		if (ImGui::Selectable("StaticMesh Component"))
 		{
 			auto* NewComp = Owner->CreateDefaultSubobject<UStaticMeshComponent>("StaticMesh");
+			NewComp->CreationMethod = EComponentCreationMethod::Instance;
 			if (Owner->GetRootComponent())
 				NewComp->SetupAttachment(Owner->GetRootComponent());
 			NewComp->RegisterComponent();
@@ -1085,6 +1086,7 @@ void FDetailsPanel::DrawAddComponentPopup(AActor * Owner)
 		if (ImGui::Selectable("SpotLight Component"))
 		{
 			auto* NewComp = Owner->CreateDefaultSubobject<USpotLightComponent>("SpotLight");
+			NewComp->CreationMethod = EComponentCreationMethod::Instance;
 			if (Owner->GetRootComponent())
 				NewComp->SetupAttachment(Owner->GetRootComponent());
 			NewComp->RegisterComponent();
@@ -1092,6 +1094,7 @@ void FDetailsPanel::DrawAddComponentPopup(AActor * Owner)
 		if (ImGui::Selectable("PointLight Component"))
 		{
 			auto* NewComp = Owner->CreateDefaultSubobject<UPointLightComponent>("PointLight");
+			NewComp->CreationMethod = EComponentCreationMethod::Instance;
 			if (Owner->GetRootComponent())
 				NewComp->SetupAttachment(Owner->GetRootComponent());
 			NewComp->RegisterComponent();
@@ -1099,6 +1102,7 @@ void FDetailsPanel::DrawAddComponentPopup(AActor * Owner)
 		if (ImGui::Selectable("AmbientLight Component"))
 		{
 			UAmbientLightComponent* NewComp = Owner->CreateDefaultSubobject<UAmbientLightComponent>("AmbientLight");
+			NewComp->CreationMethod = EComponentCreationMethod::Instance;
 			if (Owner->GetRootComponent())
 				NewComp->SetupAttachment(Owner->GetRootComponent());
 			else
@@ -1110,6 +1114,7 @@ void FDetailsPanel::DrawAddComponentPopup(AActor * Owner)
 		if (ImGui::Selectable("DirectionalLight Component"))
 		{
 			auto* NewComp = Owner->CreateDefaultSubobject<UDirectionalLightComponent>("DirectionalLight");
+			NewComp->CreationMethod = EComponentCreationMethod::Instance;
 			if (Owner->GetRootComponent())
 				NewComp->SetupAttachment(Owner->GetRootComponent());
 			NewComp->RegisterComponent();
@@ -1117,12 +1122,14 @@ void FDetailsPanel::DrawAddComponentPopup(AActor * Owner)
 		if (ImGui::Selectable("RotatingMovement Component"))
 		{
 			auto* NewComp = Owner->CreateDefaultSubobject<RotatingMovementComponent>("RotatingMovement");
+			NewComp->CreationMethod = EComponentCreationMethod::Instance;
 			SelectedComponent = NewComp;
 			NewComp->RegisterComponent();
 		}
 		if (ImGui::Selectable("ParticleSubUV Component"))
 		{
 			auto* NewComp = Owner->CreateDefaultSubobject<UParticleSubUVComponent>("Particle");
+			NewComp->CreationMethod = EComponentCreationMethod::Instance;
 			if (Owner->GetRootComponent())
 			{
 				NewComp->SetupAttachment(Owner->GetRootComponent());
@@ -1135,6 +1142,7 @@ void FDetailsPanel::DrawAddComponentPopup(AActor * Owner)
 		if (ImGui::Selectable("TextRender Component"))
 		{
 			auto* NewComp = Owner->CreateDefaultSubobject<UTextRenderComponent>("TextRender");
+			NewComp->CreationMethod = EComponentCreationMethod::Instance;
 			if (Owner->GetRootComponent())
 				NewComp->SetupAttachment(Owner->GetRootComponent());
 			NewComp->RegisterComponent();
@@ -1142,6 +1150,7 @@ void FDetailsPanel::DrawAddComponentPopup(AActor * Owner)
 		if (ImGui::Selectable("Billboard Component"))
 		{
 			auto* NewComp = Owner->CreateDefaultSubobject<UBillboardComponent>("Billboard");
+			NewComp->CreationMethod = EComponentCreationMethod::Instance;
 			if (Owner->GetRootComponent())
 				NewComp->SetupAttachment(Owner->GetRootComponent());
 			NewComp->RegisterComponent();
@@ -1149,6 +1158,7 @@ void FDetailsPanel::DrawAddComponentPopup(AActor * Owner)
 		if(ImGui::Selectable("Exponential Height Fog Component"))
 		{
 			auto* NewComp = Owner->CreateDefaultSubobject<UExponentialHeightFogComponent>("ExponentialHeightFog");
+			NewComp->CreationMethod = EComponentCreationMethod::Instance;
 			if (Owner->GetRootComponent())
 				NewComp->SetupAttachment(Owner->GetRootComponent());
 			NewComp->RegisterComponent();
@@ -1156,12 +1166,14 @@ void FDetailsPanel::DrawAddComponentPopup(AActor * Owner)
 		if (ImGui::Selectable("Projectile Movement Component"))
 		{
 			auto* NewComp = Owner->CreateDefaultSubobject<UProjectileMovementComponent>("ProjectileMovement");
+			NewComp->CreationMethod = EComponentCreationMethod::Instance;
 			SelectedComponent = NewComp;
 			NewComp->RegisterComponent();
 		}
 		if (ImGui::Selectable("Fire Ball Component"))
 		{
 			auto* NewComp = Owner->CreateDefaultSubobject<UFireBallComponent>("FireBall");
+			NewComp->CreationMethod = EComponentCreationMethod::Instance;
 			if (Owner->GetRootComponent())
 				NewComp->SetupAttachment(Owner->GetRootComponent());
 			NewComp->RegisterComponent();

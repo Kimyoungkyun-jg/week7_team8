@@ -42,24 +42,19 @@ cbuffer Lighting : register(b1)
 };
 
 StructuredBuffer<FSceneLightRenderInfo> SceneLights : register(t8);
-StructuredBuffer<uint> ClusterCounts : register(t9);
-StructuredBuffer<uint> ClusterLightIndices : register(t10);
+StructuredBuffer<uint4> TileLightRanges : register(t9);
+StructuredBuffer<uint> TilePointIndices : register(t10);
+StructuredBuffer<uint> TileSpotIndices : register(t12);
 TextureCube<float4> SkyIrradiance : register(t11);
 SamplerState SkySampler : register(s1);
 
-// Compute 패스의 b0와 같은 상수 버퍼를 픽셀 셰이더의 b3에도 바인딩한다.
-cbuffer ForwardClusterConstants : register(b3)
+// Compute가 생성한 타일 목록의 주소 계산과 사용 여부만 전달한다.
+cbuffer ForwardTileLightingInfo : register(b3)
 {
-    matrix ClusterInverseViewProjection;
-    float4 ClusterCameraPosition;
-    float4 ClusterCameraForward;
-    uint3 ClusterDimensions;
-    uint bOrthographic;
-    uint4 ClusterViewportSize;
-    uint4 ClusterLightCounts;
-    uint4 ClusterLightOffsets;
-    float4 ClusterDepthRange;
-    uint4 ClusterOptions; // x: 빌드 성공, y: 타일 크기, z: 클러스터당 최대 라이트 수
+    uint UseTiledLights;
+    uint TileCountX;
+    uint LightTileSize;
+    uint TilePadding;
 };
 
 cbuffer MaterialParams : register(b2)
@@ -215,59 +210,37 @@ FLightResult CalculateLighting(float3 P, float3 Normal, bool bIncludeSpecular)
     return Result;
 }
 
-// 픽셀 위치와 카메라 전방 깊이를 Compute 패스에서 사용한 클러스터 격자로 변환한다.
-uint CalculateForwardClusterID(float2 PixelPosition, float3 WorldPosition)
-{
-    uint2 Pixel = min((uint2)PixelPosition, ClusterViewportSize.xy - 1u);
-    uint2 Tile = min(Pixel / ClusterOptions.y, ClusterDimensions.xy - 1u);
-
-    float NearDepth = ClusterDepthRange.x;
-    float FarDepth = ClusterDepthRange.y;
-    float ViewDepth = max(dot(WorldPosition - ClusterCameraPosition.xyz,
-        ClusterCameraForward.xyz), NearDepth);
-    float SliceFraction = bOrthographic != 0
-        ? (ViewDepth - NearDepth) / (FarDepth - NearDepth)
-        : log2(ViewDepth / NearDepth) / log2(max(FarDepth / NearDepth, 1.0f));
-    uint DepthSlice = min((uint)(saturate(SliceFraction) * ClusterDimensions.z),
-        ClusterDimensions.z - 1u);
-
-    return (DepthSlice * ClusterDimensions.y + Tile.y) * ClusterDimensions.x + Tile.x;
-}
-
-FLightResult CalculateClusteredLighting(float2 PixelPosition, float3 P,
+// 타일 목록의 인덱스는 kim의 공유 SceneLights 안에서 종류별 시작 위치에 더한다.
+FLightResult CalculateTiledLighting(float2 PixelPosition, float3 P,
     float3 Normal, bool bIncludeSpecular)
 {
     float3 N = normalize(Normal);
     float3 ToCamera = CameraPosition.xyz - P;
     float3 V = ToCamera * rsqrt(max(dot(ToCamera, ToCamera), 1.0e-8f));
     FLightResult Result = CalculateBaseLighting(N, V, bIncludeSpecular);
-
-    if (ClusterOptions.x == 0)
+    if (UseTiledLights == 0)
     {
         AddAllLocalLights(Result, P, N, V, bIncludeSpecular);
+        return Result;
     }
-    else
+
+    uint2 Tile = uint2(PixelPosition) / LightTileSize;
+    uint4 Range = TileLightRanges[Tile.y * TileCountX + Tile.x];
+    bool UsePointList = Range.x != 0xffffffffu;
+    bool UseSpotList = Range.z != 0xffffffffu;
+    uint PointCount = UsePointList ? Range.y : LightCounts.x;
+    uint SpotCount = UseSpotList ? Range.w : LightCounts.y;
+    [loop]
+    for (uint Index = 0; Index < PointCount; ++Index)
     {
-        uint ClusterID = CalculateForwardClusterID(PixelPosition, P);
-        uint ClusterLightCount = ClusterCounts[ClusterID];
-        if (ClusterLightCount > ClusterOptions.z)
-        {
-            AddAllLocalLights(Result, P, N, V, bIncludeSpecular);
-        }
-        else
-        {
-            uint FirstSpotIndex = LightOffsets.y;
-            [loop]
-            for (uint Index = 0; Index < ClusterLightCount; ++Index)
-            {
-                uint LightIndex = ClusterLightIndices[ClusterID * ClusterOptions.z + Index];
-                FSceneLightRenderInfo Light = SceneLights[LightIndex];
-                if (LightIndex < FirstSpotIndex)
-                    CalculatePointLight(Result, Light, P, N, V, bIncludeSpecular);
-                else
-                    CalculateSpotLight(Result, Light, P, N, V, bIncludeSpecular);
-            }
-        }
+        uint LightIndex = UsePointList ? TilePointIndices[Range.x + Index] : Index;
+        CalculatePointLight(Result, SceneLights[LightOffsets.x + LightIndex], P, N, V, bIncludeSpecular);
+    }
+    [loop]
+    for (uint Index = 0; Index < SpotCount; ++Index)
+    {
+        uint LightIndex = UseSpotList ? TileSpotIndices[Range.z + Index] : Index;
+        CalculateSpotLight(Result, SceneLights[LightOffsets.y + LightIndex], P, N, V, bIncludeSpecular);
     }
     return Result;
 }
@@ -322,10 +295,10 @@ FForwardOutput Uber_PS(VS_OUT Input)
     Diffuse = Input.VertexDiffuse;
     Specular = Input.VertexSpecular;
 #elif LIGHTING_MODEL_LAMBERT
-    Diffuse = CalculateClusteredLighting(Input.Position.xy, Input.WorldPosition,
+    Diffuse = CalculateTiledLighting(Input.Position.xy, Input.WorldPosition,
         ShadingNormal, false).Diffuse;
 #elif LIGHTING_MODEL_PHONG
-    FLightResult Lit = CalculateClusteredLighting(Input.Position.xy, Input.WorldPosition,
+    FLightResult Lit = CalculateTiledLighting(Input.Position.xy, Input.WorldPosition,
         ShadingNormal, true);
     Diffuse = Lit.Diffuse;
     Specular = Lit.Specular;

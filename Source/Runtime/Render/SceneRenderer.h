@@ -3,6 +3,7 @@
 #include "Core/Types.h"
 #include "Render/SceneView.h"
 #include "Render/RenderPacket.h"
+#include "Render/MeshPassProcessor.h"
 #include "Render/SceneRenderData.h"
 #include "Render/SceneRenderOptions.h"
 #include "Render/RenderGraph/RenderGraph.h"
@@ -91,7 +92,8 @@ private:
 	uint32 LightCounts[4]{};
 	uint32 LightOffsets[4]{};
 	bool bLightUploadSucceeded = false;
-	bool bClustersBuilt = false;
+	bool bTilesBuilt = false;
+	std::vector<FMeshDrawBatch> ForwardBatches;
 	FViewContext CachedViewContext;
 	bool bCorePassSucceeded = true;
 	bool bFXAAPassSucceeded = true;

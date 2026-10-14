@@ -8,9 +8,10 @@ struct FSceneRenderOptions
 	bool bDrawPrimitives = true;
 	bool bEnableFog = true;
 	bool bEnableFXAA = false;
-	bool bEnableClusteredLightCulling = true;
+	bool bEnableTiledLightCulling = true;
 	bool bShowSceneDepth = false;
 	bool bShowWorldNormal = false;
+	bool bShowLightCulling = false;
 	float SceneDepthRange = 1.0f;
 
 	ERenderingPath RenderingPath = ERenderingPath::Deferred;
