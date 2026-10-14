@@ -185,7 +185,7 @@ float3 CalculateTBN(float3 WorldPos, float2 UV, float3 GeometryNormal)
     
     float det = duv1.x * duv2.y - duv1.y * duv2.x;
     
-    float invDet = (abs(det) < 1e-6f) ? 0.0f : 1.0f / det;
+    float invDet = (abs(det) < 1e-16f) ? 0.0f : 1.0f / det;
     if(invDet == 0.0f)
     {
         return GeometryNormal;
