@@ -9,6 +9,12 @@
 class AActor;
 class UWorld;
 
+enum class EComponentCreationMethod : uint8
+{
+  Native,
+  Instance
+};
+
 class UActorComponent : public UObject {
   DECLARE_CLASS(UActorComponent, UObject)
 
@@ -19,6 +25,10 @@ class UActorComponent : public UObject {
 public:
   UActorComponent() { PrimaryComponentTick.Target = this; }
   virtual ~UActorComponent() override;
+
+  EComponentCreationMethod CreationMethod = EComponentCreationMethod::Native;
+  bool CanDeleteFromEditor() const;
+  virtual void DestroyComponent();
 
   virtual void InitializeComponent();
 

@@ -169,7 +169,7 @@ void AActor::DuplicateSubobjects(UObject* SourceObject)
             if (DstComp)
             {
                 DstComp->SetOwner(this);
-                Components.Add(DstComp);
+                AddComponents(DstComp);
             }
         }
 

@@ -143,10 +143,8 @@ void FOutlinerPanel::SelectActor(AActor* Actor)
 
 	HTR_LOG(Info, "{} UUID {} is selected", SelectedObject->GetName(), SelectedObject->GetUUID());
 
-	UPrimitiveComponent* Primitive = Cast<UPrimitiveComponent>(Actor->GetRootComponent());
-
 	if (Callback)
-		Callback(Primitive);
+		Callback(Actor->GetRootComponent());
 }
 
 

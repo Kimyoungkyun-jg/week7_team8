@@ -36,7 +36,11 @@ public:
 	void SetLevel(ULevel* level) { Level=level; }
 
 	const TArray<UActorComponent*>& GetComponents() const { return Components; }
-	void AddComponents(UActorComponent* component) { Components.Add(component); }
+	void AddComponents(UActorComponent* component)
+	{
+		component->CreationMethod = EComponentCreationMethod::Instance;
+		Components.Add(component);
+	}
 	USceneComponent* GetRootComponent() const { return RootComponent; }
 	void SetRootComponent(USceneComponent* SceneComponent) { RootComponent = SceneComponent; }
 

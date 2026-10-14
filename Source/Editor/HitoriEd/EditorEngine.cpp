@@ -202,10 +202,10 @@ bool UEditorEngine::Init() {
 
 	OutlinerPanel = EditorUI->AddEditorPanel<FOutlinerPanel>();
 	OutlinerPanel->SetWorld(EditorWorld);
-	OutlinerPanel->SetSelectionCallback([this](UPrimitiveComponent *Primitive) {
-		Gizmo->SetTarget(Primitive);
-		Outline->SetTarget(Primitive);
-		DetailsPanel->SetTarget(Primitive);
+	OutlinerPanel->SetSelectionCallback([this](USceneComponent *Component) {
+		Gizmo->SetTarget(Component);
+		Outline->SetTarget(Cast<UPrimitiveComponent>(Component));
+		DetailsPanel->SetTarget(Component);
 	});
 
 	OutlinerPanel->SetDeleteActorCallback(
@@ -344,7 +344,10 @@ void UEditorEngine::UpdateViewportState(const float DeltaTime) {
 	UpdateInputOwner();
 	if (InputOwnerPIEInstance == -1 && !ImGui::GetIO().WantTextInput &&
 		FInputSystem::IsKeyPressed(EKeyCode::Delete)) {
-		DeleteActor(OutlinerPanel->GetSelectedActor());
+		if (UActorComponent* Component = DetailsPanel->GetSelectedComponent())
+			DeleteComponent(Component);
+		else
+			DeleteActor(OutlinerPanel->GetSelectedActor());
 	}
 	PendingWheelDelta = FInputSystem::GetWheelDelta();
 	const float MoveSpeed = 10.0f * SettingsPanel->GetSettings().CameraSpeed;
@@ -1084,6 +1087,16 @@ void UEditorEngine::DeleteActor(AActor *Actor) {
 	OutlinerPanel->SelectActor(nullptr);
 
 	Actor->Destroy();
+}
+
+void UEditorEngine::DeleteComponent(UActorComponent* Component)
+{
+	if (!Component || !Component->CanDeleteFromEditor()) return;
+	AActor* Owner = Component->GetOwner();
+	if (Owner->GetWorld() != EditorWorld) return;
+	Gizmo->EndDrag();
+	OutlinerPanel->SelectActor(Owner);
+	Component->DestroyComponent();
 }
 
 // 씬 변경으로 무효화된 에디터의 선택 참조를 모두 해제한다.

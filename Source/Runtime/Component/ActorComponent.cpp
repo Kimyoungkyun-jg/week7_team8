@@ -19,6 +19,17 @@ UActorComponent::~UActorComponent()
 	}
 }
 
+bool UActorComponent::CanDeleteFromEditor() const
+{
+	return CreationMethod == EComponentCreationMethod::Instance && Owner && Owner->GetRootComponent() != this;
+}
+
+void UActorComponent::DestroyComponent()
+{
+	UnregisterComponent();
+	delete this;
+}
+
 void UActorComponent::InitializeComponent()
 {
 	if (bIsInitialized)

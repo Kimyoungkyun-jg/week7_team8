@@ -170,7 +170,7 @@ void UBenchmarkEngine::InitEditorTools()
 	OutlinerPanel = EditorUI->AddEditorPanel<FOutlinerPanel>();
 	OutlinerPanel->SetWorld(EditorWorld);
 	OutlinerPanel->SetSelectionCallback(
-		[this](UPrimitiveComponent* Primitive) { SelectPrimitive(Primitive); });
+		[this](USceneComponent* Component) { SelectPrimitive(Cast<UPrimitiveComponent>(Component)); });
 	OutlinerPanel->SetDeleteActorCallback(
 		[this](AActor* Actor)
 		{

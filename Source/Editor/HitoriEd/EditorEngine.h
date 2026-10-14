@@ -66,6 +66,7 @@ public:
 	// 네 View 결과와 ImGui를 메인 Swapchain 백버퍼에 합성한다. Present는 FEngineLoop가 한다.
 	void PresentFrame();
 	void DeleteActor(AActor* Actor);
+	void DeleteComponent(UActorComponent* Component);
 
 	EPIEState GetPIEState() const { return PIEState; }
 
