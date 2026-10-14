@@ -1,8 +1,10 @@
 #pragma pack_matrix(row_major)
+#include "LightEvaluation.hlsli"
 
 Texture2D<float4> BaseColorMetallic : register(t0);
 Texture2D<float4> NormalRoughness : register(t1);
 Texture2D<float> SceneDepth : register(t2);
+Texture2D<float4> SpecularShininess : register(t3);
 TextureCube<float4> SkyIrradiance : register(t4);
 SamplerState SkySampler : register(s1);
 
@@ -11,7 +13,7 @@ struct FSceneLightRenderInfo
     float4 PositionRadius;    // 방향광에서는 xyz가 빛의 진행 방향
     float4 DirectionOuterCos; // 스포트: xyz 진행 방향, w 바깥 각도의 코사인
     float4 ColorIntensity;    // rgb: 색상, w: 광도
-    float4 Parameters;        // 포인트: x 거리 감쇠, 스포트: x 안쪽 각도의 코사인, y 거리 감쇠
+    float4 Parameters;        // 스포트: x 안쪽 각도의 코사인
 };
 
 cbuffer DeferredLightConstants : register(b0)
@@ -26,7 +28,7 @@ cbuffer DeferredLightConstants : register(b0)
     float4 SkyColorIntensity;
 };
 
-StructuredBuffer<FSceneLightRenderInfo> SceneLights : register(t3);
+StructuredBuffer<FSceneLightRenderInfo> SceneLights : register(t5);
 
 struct FPSInput
 {
@@ -41,26 +43,6 @@ FPSInput mainVS(uint VertexID : SV_VertexID)
     return Output;
 }
 
-void AccumulateLocalLight(inout float3 Diffuse, inout float3 Specular,
-    float3 Albedo, float Metallic, float Roughness,
-    float3 N, float3 V, float3 L, float3 Radiance)
-{
-    float NdotL = saturate(dot(N, L));
-    if (NdotL <= 0.0f) return;
-
-    Diffuse += Albedo * (1.0f - saturate(Metallic)) * Radiance * NdotL;
-
-    float3 H = L + V;
-    float HLengthSquared = dot(H, H);
-    if (HLengthSquared <= 1.0e-8f) return;
-    H *= rsqrt(HLengthSquared);
-
-    float3 F0 = lerp(float3(0.04f, 0.04f, 0.04f), Albedo, saturate(Metallic));
-    float Gloss = 1.0f - saturate(Roughness);
-    float Shininess = lerp(2.0f, 128.0f, Gloss * Gloss);
-    Specular += F0 * Radiance * pow(saturate(dot(N, H)), Shininess) * NdotL;
-}
-
 float4 mainPS(FPSInput Input) : SV_Target
 {
     int2 Pixel = int2(Input.Position.xy);
@@ -71,28 +53,18 @@ float4 mainPS(FPSInput Input) : SV_Target
     float4 MaterialData = BaseColorMetallic.Load(int3(Pixel, 0));
     float4 NormalData = NormalRoughness.Load(int3(Pixel, 0));
     float3 Albedo = MaterialData.rgb;
-    float Metallic = MaterialData.a;
-    float Roughness = NormalData.a;
+    float4 SpecularData = SpecularShininess.Load(int3(Pixel, 0));
     float3 N = NormalData.xyz * rsqrt(max(dot(NormalData.xyz, NormalData.xyz), 1.0e-8f));
     
     float3 AmbientColor = AmbientColorIntensity.rgb * max(AmbientColorIntensity.a, 0.0f);
-    float3 BaseLighting = AmbientColor;
+    FLightResult Lighting;
+    Lighting.Diffuse = AmbientColor;
+    Lighting.Specular = 0.0f;
     if (SkyColorIntensity.a > 0.0f)
-        BaseLighting += SkyIrradiance.SampleLevel(SkySampler, N, 0).rgb *
+        Lighting.Diffuse += SkyIrradiance.SampleLevel(SkySampler, N, 0).rgb *
             SkyColorIntensity.rgb * SkyColorIntensity.a;
-    [loop]
-    for (uint DirectionalIndex = 0; DirectionalIndex < LightCounts.z; ++DirectionalIndex)
-    {
-        FSceneLightRenderInfo Light = SceneLights[LightOffsets.z + DirectionalIndex];
-        if (Light.ColorIntensity.w <= 0.0f) continue;
-        float3 LightDir = normalize(Light.PositionRadius.xyz);
-        float3 LightColor = Light.ColorIntensity.rgb * Light.ColorIntensity.w;
-        BaseLighting += LightColor * saturate(dot(N, -LightDir));
-    }
-
-    float3 Lighting = Albedo * BaseLighting;
-    if (LightCounts.x == 0 && LightCounts.y == 0)
-        return float4(Lighting, 1.0f);
+    if (LightCounts.x == 0 && LightCounts.y == 0 && LightCounts.z == 0)
+        return float4(Albedo * Lighting.Diffuse, 1.0f);
 
     float2 UV = (float2(Pixel) + 0.5f) / ViewportSize.xy;
     float2 NDC = float2(UV.x * 2.0f - 1.0f, 1.0f - UV.y * 2.0f);
@@ -105,8 +77,14 @@ float4 mainPS(FPSInput Input) : SV_Target
         ? CameraPosition.xyz - WorldPosition : -CameraForward.xyz;
     float3 V = ToCamera * rsqrt(max(dot(ToCamera, ToCamera), 1.0e-8f));
 
-    float3 LocalDiffuse = 0.0f;
-    float3 LocalSpecular = 0.0f;
+    [loop]
+    for (uint DirectionalIndex = 0; DirectionalIndex < LightCounts.z; ++DirectionalIndex)
+    {
+        FSceneLightRenderInfo Light = SceneLights[LightOffsets.z + DirectionalIndex];
+        float3 Radiance = Light.ColorIntensity.rgb * max(Light.ColorIntensity.w, 0.0f);
+        AccumulateLight(Lighting, N, V, normalize(-Light.PositionRadius.xyz), Radiance,
+            SpecularData.rgb, SpecularData.w, true);
+    }
 
     [loop]
     for (uint PointIndex = 0; PointIndex < LightCounts.x; ++PointIndex)
@@ -116,18 +94,15 @@ float4 mainPS(FPSInput Input) : SV_Target
         float DistanceSquared = dot(ToLight, ToLight);
         float RadiusSquared = Light.PositionRadius.w * Light.PositionRadius.w;
         
-        if (RadiusSquared <= 0.0f || DistanceSquared >= RadiusSquared || DistanceSquared < 1.0e-8f)
-            continue;
+        float Attenuation = CalculateDistanceAttenuation(DistanceSquared, RadiusSquared);
+        if (Attenuation <= 0.0f) continue;
 
         float Distance = sqrt(max(DistanceSquared, 1.0e-6f));
         float3 L = ToLight / Distance;
         
-        float x = Distance / Light.PositionRadius.w;
-        float Attenuation = pow(saturate(1.0 - x), max(Light.Parameters.x, 0.0f));
         
         float3 Radiance = Light.ColorIntensity.rgb * max(Light.ColorIntensity.w, 0.0f) * Attenuation;
-        AccumulateLocalLight(LocalDiffuse, LocalSpecular,
-            Albedo, Metallic, Roughness, N, V, L, Radiance);
+        AccumulateLight(Lighting, N, V, L, Radiance, SpecularData.rgb, SpecularData.w, true);
 
     }
 
@@ -138,23 +113,20 @@ float4 mainPS(FPSInput Input) : SV_Target
         float3 ToLight = Light.PositionRadius.xyz - WorldPosition;
         float DistanceSquared = dot(ToLight, ToLight);
         float RadiusSquared = Light.PositionRadius.w * Light.PositionRadius.w;
-        if (RadiusSquared <= 0.0f || DistanceSquared >= RadiusSquared || DistanceSquared < 1.0e-8f)
-            continue;
+        float RadiusFade = CalculateDistanceAttenuation(DistanceSquared, RadiusSquared);
+        if (RadiusFade <= 0.0f) continue;
 
         float Distance = sqrt(max(DistanceSquared, 1.0e-6f));
         float3 L = ToLight / Distance;
         float ConeCos = dot(-L, normalize(Light.DirectionOuterCos.xyz));
-        float ConeFade = smoothstep(Light.DirectionOuterCos.w, Light.Parameters.x, ConeCos);
-        float RadiusFade = pow(saturate(1.0f - Distance / Light.PositionRadius.w),
-            max(Light.Parameters.y, 0.0f));
+        float ConeFade = CalculateConeAttenuation(ConeCos, Light.Parameters.x, Light.DirectionOuterCos.w);
         float3 Radiance = Light.ColorIntensity.rgb * max(Light.ColorIntensity.w, 0.0f)
             * ConeFade * RadiusFade;
-        AccumulateLocalLight(LocalDiffuse, LocalSpecular,
-            Albedo, Metallic, Roughness, N, V, L, Radiance);
+        AccumulateLight(Lighting, N, V, L, Radiance, SpecularData.rgb, SpecularData.w, true);
     }
     
     
-    return float4(Lighting + LocalDiffuse + LocalSpecular, 1.0f);
+    return float4(Albedo * Lighting.Diffuse + Lighting.Specular, 1.0f);
     
 }
 

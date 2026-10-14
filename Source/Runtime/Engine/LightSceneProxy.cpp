@@ -4,6 +4,7 @@
 #include "Component/DirectionalLightComponent.h"
 #include "Component/SpotLightComponent.h"
 #include "Component/SkyLightComponent.h"
+#include "Component/AmbientLightComponent.h"
 
 #include <algorithm>
 #include <cmath>
@@ -19,6 +20,22 @@ void FLightSceneProxy::UpdateCommon(bool bComponentEnabled)
 	bVisible = Component->IsVisible();
 	bHiddenInGame = Component->IsHiddenInGame();
 	bEnabled = bComponentEnabled && Component->GetIntensity() > 0.0f;
+}
+
+FAmbientLightSceneProxy::FAmbientLightSceneProxy(UAmbientLightComponent* InComponent)
+	: FLightSceneProxy(InComponent)
+{
+	Update();
+}
+
+void FAmbientLightSceneProxy::Update()
+{
+	UAmbientLightComponent* AmbientComponent = static_cast<UAmbientLightComponent*>(Component);
+	UpdateCommon(AmbientComponent && AmbientComponent->IsEnabled());
+	if (!AmbientComponent) return;
+	const FVector4& Color = AmbientComponent->GetLightColor();
+	RenderData.ColorIntensity = FVector4(std::max(0.0f, Color.X), std::max(0.0f, Color.Y),
+		std::max(0.0f, Color.Z), std::max(0.0f, AmbientComponent->GetIntensity()));
 }
 
 FPointLightSceneProxy::FPointLightSceneProxy(UPointLightComponent* InComponent)

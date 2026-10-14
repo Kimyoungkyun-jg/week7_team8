@@ -9,6 +9,7 @@
 #include "Component/SpotLightComponent.h"
 #include "Component/PointLightComponent.h"
 #include "Component/DirectionalLightComponent.h"
+#include "Component/AmbientLightComponent.h"
 #include "Component/RotationMovementComponent.h"
 #include "Component/ParticleSubUVComponent.h"
 #include "Component/BillboardComponent.h"
@@ -513,6 +514,38 @@ namespace
 					
 					ImGui::TableNextRow();
 
+					// 재질별 Blinn-Phong 파라미터.
+					ImGui::TableSetColumnIndex(0);
+					ImGui::Text("Specular Color");
+					ImGui::TableSetColumnIndex(1);
+					FVector TempSpecular = Effective ? Effective->SpecularColor : FVector(1.0f, 1.0f, 1.0f);
+					if (ImGui::ColorEdit3("##SpecularColor", &TempSpecular.X))
+					{
+						Override = EnsureMaterialOverride(MeshComponent, Slot, Effective, Override);
+						if (Override)
+						{
+							Override->SpecularColor = TempSpecular;
+							MeshComponent->OnPropertyChanged("OverrideMaterials");
+							Effective = Override;
+						}
+					}
+					ImGui::TableNextRow();
+					ImGui::TableSetColumnIndex(0);
+					ImGui::Text("Shininess");
+					ImGui::TableSetColumnIndex(1);
+					float TempShininess = Effective ? Effective->Shininess : 32.0f;
+					if (ImGui::DragFloat("##Shininess", &TempShininess, 1.0f, 1.0f, 256.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp))
+					{
+						Override = EnsureMaterialOverride(MeshComponent, Slot, Effective, Override);
+						if (Override)
+						{
+							Override->Shininess = TempShininess;
+							MeshComponent->OnPropertyChanged("OverrideMaterials");
+							Effective = Override;
+						}
+					}
+					ImGui::TableNextRow();
+
 					// 4: UV Scroll Speed
 					ImGui::TableSetColumnIndex(0);
 					ImGui::Text("UV Scroll");
@@ -611,43 +644,30 @@ namespace
 		if (ImGui::CollapsingHeader("Billboard Sprite", ImGuiTreeNodeFlags_DefaultOpen))
 		{
 			static const char* IconNames[] = {
-				"None",
-				"PointLight_64x",
-				"SpotLight_64x",
-				"Pawn_64x"
+				"None", "Point Light", "Spot Light", "Directional Light", "Sky Light", "Pawn"
 			};
 			static const char* IconPaths[] = {
-				"",
-				"Editor/Icon/PointLight_64x.png",
-				"Editor/Icon/SpotLight_64x.png",
-				"Editor/Icon/Pawn_64x.png"
+				"", "Editor/Icon/PointLight_64x.png", "Editor/Icon/SpotLight_64x.png",
+				"Editor/Icon/DirectionalLight_64x.png", "Editor/Icon/SkyLight_64x.png", "Editor/Icon/Pawn_64x.png"
 			};
-			// 현재 선택된 아이콘 인덱스 찾기
-			int CurrentIndex = 0;
 			UTexture2D* CurrentSprite = BillboardComponent->GetSprite();
-			if (CurrentSprite)
+			const FString Preview = CurrentSprite
+				? fs::path(CurrentSprite->GetPath()).filename().string() : "None";
+			if (ImGui::BeginCombo("Sprite Icon", Preview.c_str()))
 			{
-				for (int i = 1; i < IM_ARRAYSIZE(IconNames); ++i)
+				for (int32 Index = 0; Index < IM_ARRAYSIZE(IconNames); ++Index)
 				{
-					if (CurrentSprite->GetPath().find(IconNames[i]) != std::string::npos)
+					const bool bSelected = Index == 0 ? !CurrentSprite
+						: CurrentSprite && CurrentSprite->GetPath() == IconPaths[Index];
+					if (ImGui::Selectable(IconNames[Index], bSelected))
 					{
-						CurrentIndex = i;
-						break;
+						if (Index == 0)
+							BillboardComponent->SetSprite(nullptr);
+						else if (UTexture2D* Texture = UAssetManager::Get().LoadTexture(IconPaths[Index]))
+							BillboardComponent->SetSprite(Texture);
 					}
 				}
-			}
-			// 드롭다운 콤보박스 렌더링
-			if (ImGui::Combo("Sprite Icon", &CurrentIndex, IconNames, IM_ARRAYSIZE(IconNames)))
-			{
-				if (CurrentIndex == 0)
-				{
-					BillboardComponent->SetSprite(nullptr);
-				}
-				else
-				{
-					UTexture2D* SelectedTex = UAssetManager::Get().LoadTexture(IconPaths[CurrentIndex]);
-					BillboardComponent->SetSprite(SelectedTex);
-				}
+				ImGui::EndCombo();
 			}
 		}
 
@@ -703,12 +723,7 @@ namespace
 						{	
 							UTexture2D* DroppedTexture = *static_cast<UTexture2D**>(Payload->Data);
 							
-							if (UMaterial* Material = BillboardComponent->GetMaterial(0))
-							{
-								if (Material->Textures.IsEmpty()) Material->Textures.Add(nullptr);
-								Material->Textures[0] = DroppedTexture;
-								BillboardComponent->OnPropertyChanged("Material");
-							}
+							BillboardComponent->SetSprite(DroppedTexture);
 						}
 						ImGui::EndDragDropTarget();
 					}
@@ -1080,6 +1095,17 @@ void FDetailsPanel::DrawAddComponentPopup(AActor * Owner)
 			if (Owner->GetRootComponent())
 				NewComp->SetupAttachment(Owner->GetRootComponent());
 			NewComp->RegisterComponent();
+		}
+		if (ImGui::Selectable("AmbientLight Component"))
+		{
+			UAmbientLightComponent* NewComp = Owner->CreateDefaultSubobject<UAmbientLightComponent>("AmbientLight");
+			if (Owner->GetRootComponent())
+				NewComp->SetupAttachment(Owner->GetRootComponent());
+			else
+				Owner->SetRootComponent(NewComp);
+			NewComp->RegisterComponent();
+			SelectedComponent = NewComp;
+			Target = NewComp;
 		}
 		if (ImGui::Selectable("DirectionalLight Component"))
 		{

@@ -5,10 +5,37 @@
 #include "Component/DirectionalLightComponent.h"
 #include "Component/SpotLightComponent.h"
 #include "Component/SkyLightComponent.h"
+#include "Component/AmbientLightComponent.h"
 
 FScene::~FScene()
 {
 	RemoveAllLights();
+}
+
+void FScene::AddAmbientLight(UAmbientLightComponent* Component)
+{
+	if (!Component) return;
+	for (FAmbientLightSceneProxy* Proxy : AmbientLights)
+		if (Proxy->GetComponent() == Component) return;
+	AmbientLights.Add(new FAmbientLightSceneProxy(Component));
+}
+
+void FScene::RemoveAmbientLight(UAmbientLightComponent* Component)
+{
+	for (uint32 Index = 0; Index < AmbientLights.Num(); ++Index)
+	{
+		if (AmbientLights[Index]->GetComponent() != Component) continue;
+		delete AmbientLights[Index];
+		AmbientLights.RemoveAtSwap(Index);
+		return;
+	}
+}
+
+const FAmbientLightSceneProxy* FScene::GetActiveAmbientLight(bool bGameView) const
+{
+	for (const FAmbientLightSceneProxy* Proxy : AmbientLights)
+		if (Proxy->IsEnabled() && Proxy->IsShown(bGameView)) return Proxy;
+	return nullptr;
 }
 
 void FScene::AddPointLight(UPointLightComponent* Component)
@@ -117,6 +144,9 @@ const FSkyLightEnvironment* FScene::FindSkyLightEnvironment(const FString& Sourc
 
 void FScene::RemoveAllLights()
 {
+	for (FAmbientLightSceneProxy* Proxy : AmbientLights)
+		delete Proxy;
+	AmbientLights.Reset();
 	for (FPointLightSceneProxy* Proxy : PointLights)
 		delete Proxy;
 	PointLights.Reset();
@@ -204,6 +234,8 @@ void FScene::RemoveAllPrimitives()
 
 void FScene::UpdateAllTransforms()
 {
+	for (FAmbientLightSceneProxy* Proxy : AmbientLights)
+		Proxy->Update();
 	for (FPointLightSceneProxy* Proxy : PointLights)
 		Proxy->Update();
 	for (FDirectionalLightSceneProxy* Proxy : DirectionalLights)

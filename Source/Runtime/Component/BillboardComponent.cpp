@@ -52,7 +52,7 @@ bool UBillboardComponent::LineTraceComponentForView(
 void UBillboardComponent::SubmitToRenderQueue(FRenderQueue& RenderQueue, const FViewContext& ViewContext)
 {
 	// 리소스가 없으면 제출하지 않음
-	if (QuadMesh == nullptr || Material == nullptr)
+	if (QuadMesh == nullptr || Material == nullptr || !GetSprite())
 	{
 		return;
 	}
@@ -84,7 +84,7 @@ void UBillboardComponent::SubmitToRenderQueue(FRenderQueue& RenderQueue, const F
 // View별 Billboard 행렬과 Material을 렌더 패킷에 담는다.
 void UBillboardComponent::SubmitToRenderQueue(FRenderQueue& RenderQueue, const FMatrix& BillboardWorldMatrix)
 {
-	if (QuadMesh == nullptr || Material == nullptr)
+	if (QuadMesh == nullptr || Material == nullptr || !GetSprite())
 		return;
 
 	FRenderPacket Packet;
@@ -164,10 +164,13 @@ void UBillboardComponent::GetWorldTransformedMatrix(FMatrix* OutWorldMatrix) con
 	OutWorldMatrix->M[3][3] = 1.0f;
 }
 
+UTexture2D* UBillboardComponent::GetSprite() const
+{
+	return Material && !Material->Textures.IsEmpty() ? Material->Textures[0] : nullptr;
+}
+
 void UBillboardComponent::SetSprite(UTexture2D* InSprite)
 {
-	Sprite = InSprite;
-	if (!InSprite) return;
 	if (!Material || !Material->bIsInstance)
 	{
 		UMaterial* BaseMat = Material ? Material : UAssetManager::GetAssetByPath<UMaterial>("BillboardMaterial");

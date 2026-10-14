@@ -49,7 +49,7 @@ struct FSceneLightRenderInfo
 	FVector4 PositionRadius;    // 방향광에서는 xyz가 빛의 진행 방향
 	FVector4 DirectionOuterCos; // 스포트라이트 전용
 	FVector4 ColorIntensity;    // rgb: 색상, w: 광도
-	FVector4 Parameters;        // 포인트: x 거리 감쇠, 스포트: x 안쪽 각도의 코사인, y 거리 감쇠
+	FVector4 Parameters;        // 스포트: x 안쪽 각도의 코사인. 나머지는 기존 데이터 레이아웃 호환용
 };
 
 // UberLit.hlsl의 b1 조명 상수 버퍼와 같은 배치다.

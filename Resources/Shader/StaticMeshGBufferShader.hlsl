@@ -16,6 +16,7 @@ cbuffer MaterialParams : register(b1)
     float4 BaseColor;
     float2 UVOffset;
     float2 TextureFlags; // x: 노멀맵 인코딩
+    float4 SpecularColorShininess;
 };
 
 struct VS_INPUT
@@ -33,12 +34,14 @@ struct PS_INPUT
     float3 WorldNormal : NORMAL;
     float4 WorldTangent : TANGENT;
     float2 UV : TEXCOORD0;
+    float4 Color : COLOR;
 };
 
 struct GBUFFER_OUTPUT
 {
     float4 BaseColorMetallic : SV_Target0;
     float4 NormalRoughness : SV_Target1;
+    float4 SpecularShininess : SV_Target2;
 };
 
 Texture2D ColorTexture : register(t0);
@@ -77,6 +80,7 @@ PS_INPUT mainVS(VS_INPUT Input)
     float Handedness = Input.Tangent.w * (determinant((float3x3)World) < 0.0f ? -1.0f : 1.0f);
     Output.WorldTangent = float4(T, Handedness);
     Output.UV = Input.UV;
+    Output.Color = Input.Color;
     return Output;
 }
 
@@ -84,9 +88,11 @@ GBUFFER_OUTPUT mainPS(PS_INPUT Input)
 {
     GBUFFER_OUTPUT Output;
 
-    float4 TextureColor = ColorTexture.Sample(ColorSampler, Input.UV + UVOffset);
+    float4 TextureColor = TextureFlags.y > 0.5f
+        ? ColorTexture.Sample(ColorSampler, Input.UV + UVOffset) : Input.Color;
     // 색 텍스처는 UNORM으로 읽히므로 sRGB 값을 선형 조명 공간으로 변환한다.
-    float3 LinearAlbedo = pow(max(TextureColor.rgb, 0.0f), 2.2f) * BaseColor.rgb;
+    float3 LinearAlbedo = (TextureFlags.y > 0.5f
+        ? pow(max(TextureColor.rgb, 0.0f), 2.2f) : TextureColor.rgb) * BaseColor.rgb;
     float3 Normal = normalize(Input.WorldNormal);
     if (TextureFlags.x > 0.5f)
     {
@@ -97,5 +103,6 @@ GBUFFER_OUTPUT mainPS(PS_INPUT Input)
     // 현재 UMaterial에는 Metallic/Roughness 값이 없어 임시 상수를 쓴다.
     Output.BaseColorMetallic = float4(LinearAlbedo, 0.0f);
     Output.NormalRoughness = float4(Normal, 0.8f);
+    Output.SpecularShininess = SpecularColorShininess;
     return Output;
 }

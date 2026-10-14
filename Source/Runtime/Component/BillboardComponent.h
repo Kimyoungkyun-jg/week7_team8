@@ -37,13 +37,12 @@ public:
 
 	virtual void Serialize(json& Handle, bool bIsLoading) override;
 
-	UTexture2D* GetSprite() const { return Sprite; }
+	UTexture2D* GetSprite() const;
 	void SetSprite(UTexture2D* InSprite);
 
 protected:
 	UMaterial* Material = nullptr;
 	UStaticMesh* QuadMesh = nullptr;
-	UTexture2D* Sprite = nullptr;
 private:
 
 };

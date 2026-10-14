@@ -7,6 +7,7 @@ class UPointLightComponent;
 class UDirectionalLightComponent;
 class USpotLightComponent;
 class USkyLightComponent;
+class UAmbientLightComponent;
 
 // 월드의 라이트 컴포넌트를 렌더러가 읽을 수 있는 값으로 복사한다.
 class FLightSceneProxy
@@ -27,6 +28,17 @@ protected:
 private:
 	bool bVisible = true;
 	bool bHiddenInGame = false;
+};
+
+class FAmbientLightSceneProxy : public FLightSceneProxy
+{
+public:
+	explicit FAmbientLightSceneProxy(UAmbientLightComponent* InComponent);
+	void Update() override;
+	const FAmbientLightRenderData& GetRenderData() const { return RenderData; }
+
+private:
+	FAmbientLightRenderData RenderData{};
 };
 
 class FPointLightSceneProxy : public FLightSceneProxy

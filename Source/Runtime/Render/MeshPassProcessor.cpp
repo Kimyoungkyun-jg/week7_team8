@@ -61,10 +61,12 @@ namespace
 
 			FForwardMaterialConstants Params{};
 			Params.BaseColor = Material->BaseColor;
+			Params.SpecularColorShininess = FVector4(Material->SpecularColor.X,
+				Material->SpecularColor.Y, Material->SpecularColor.Z, std::max(1.0f, Material->Shininess));
 			UTexture2D* Color = Material->Textures.IsEmpty() ? nullptr : Material->Textures[0];
 			UTexture2D* Normal = Material->Textures.Num() > 1 ? Material->Textures[1] : nullptr;
 			const bool bHasColor = Color && Color->GetResource() && Color->GetResource()->GetSRV();
-			Params.SurfaceParams = FVector4(0.25f, 32.0f, bHasColor ? 1.0f : 0.0f,
+			Params.SurfaceParams = FVector4(0.0f, 0.0f, bHasColor ? 1.0f : 0.0f,
 				GetNormalEncoding(Normal));
 			const FVector2 UV = Material->UVScrollSpeed * EngineTimer::GetTotalTime();
 			Params.UVTransform = FVector4(UV.X, UV.Y, 1.0f, 1.0f);
@@ -90,8 +92,17 @@ namespace
 				Params.BaseColor = Material->BaseColor;
 				Params.UVOffset = Material->UVScrollSpeed * EngineTimer::GetTotalTime();
 				Params.TextureFlags.X = GetNormalEncoding(Material->Textures.Num() > 1 ? Material->Textures[1] : nullptr);
+				UTexture2D* ColorTexture = Material->Textures.IsEmpty() ? nullptr : Material->Textures[0];
+				Params.TextureFlags.Y = ColorTexture && ColorTexture->GetResource() && ColorTexture->GetResource()->GetSRV() ? 1.0f : 0.0f;
 				std::memcpy(Batch.MaterialData.data(), &Params, sizeof(Params));
 				Batch.MaterialDataSize = sizeof(Params);
+				if (Pass == EMeshPassType::GBuffer)
+				{
+					const FVector4 Specular(Material->SpecularColor.X, Material->SpecularColor.Y,
+						Material->SpecularColor.Z, std::max(1.0f, Material->Shininess));
+					std::memcpy(Batch.MaterialData.data() + sizeof(Params), &Specular, sizeof(Specular));
+					Batch.MaterialDataSize += sizeof(Specular);
+				}
 			}
 			else if (OverrideParams && OverrideSize <= Batch.MaterialData.size())
 			{

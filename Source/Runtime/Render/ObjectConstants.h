@@ -37,8 +37,10 @@ struct FForwardMaterialConstants
 	FVector4 Emissive;
 	FVector4 SurfaceParams;
 	FVector4 UVTransform;
+	FVector4 SpecularColorShininess;
 };
 
 static_assert(sizeof(FForwardObjectConstants) == 256);
-static_assert(sizeof(FForwardMaterialConstants) == 64);
+static_assert(sizeof(FForwardMaterialConstants) == 80);
+static_assert(offsetof(FForwardMaterialConstants, SpecularColorShininess) == 64);
 

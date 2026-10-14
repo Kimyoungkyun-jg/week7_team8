@@ -6,6 +6,7 @@
 #include "GameFramework/Actor/ParticleActor.h"
 #include "GameFramework/Actor/StaticMeshActor.h"
 #include "GameFramework/Actor/DirectionalLight.h"
+#include "GameFramework/Actor/AmbientLight.h"
 #include "GameFramework/Actor/LightActor.h"
 #include "GameFramework/Actor/PointLightActor.h"
 #include "GameFramework/Actor/SpotLight.h"

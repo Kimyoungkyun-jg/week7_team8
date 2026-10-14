@@ -12,7 +12,6 @@ class USpotLightComponent : public ULightComponent
 		PROPERTY(InnerConeAngle)
 		PROPERTY(OuterConeAngle)
 		PROPERTY(AttenuationRadius)
-		PROPERTY(Falloff)
 		PROPERTY(bEnabled)
 	REFLECT_END()
 

@@ -15,7 +15,8 @@ FShaderByteCode RenderUtil::CompileShader(FString Path, const char* EntryPoint, 
 	std::wstring WPath(Path.begin(), Path.end());
 
 	ComPtr<ID3DBlob> ErrorBlob;
-	HRESULT hr = D3DCompileFromFile(WPath.c_str(), Defines, nullptr, EntryPoint, Target, Flags, 0, ByteCode.Blob.GetAddressOf(), ErrorBlob.GetAddressOf());
+	HRESULT hr = D3DCompileFromFile(WPath.c_str(), Defines, D3D_COMPILE_STANDARD_FILE_INCLUDE,
+		EntryPoint, Target, Flags, 0, ByteCode.Blob.GetAddressOf(), ErrorBlob.GetAddressOf());
 
 	if (FAILED(hr))
 	{
@@ -76,6 +77,13 @@ bool RenderUtil::IsCsoUpToDate(const FString& ShaderPath, const FString& CsoPath
 	if (Ec) return false;
 	const auto CsoTime = fs::last_write_time(CsoPath, Ec);
 	if (Ec) return false;
+	// 공용 조명 계산 변경은 이 파일을 include하는 두 셰이더의 캐시도 무효화한다.
+	const fs::path ShaderFile = fs::path(ShaderPath).filename();
+	if (ShaderFile == "UberLit.hlsl" || ShaderFile == "DeferredLightingShader.hlsl")
+	{
+		const auto IncludeTime = fs::last_write_time("Resources/Shader/LightEvaluation.hlsli", Ec);
+		if (Ec || IncludeTime >= CsoTime) return false;
+	}
 
 	return CsoTime > SrcTime;
 }

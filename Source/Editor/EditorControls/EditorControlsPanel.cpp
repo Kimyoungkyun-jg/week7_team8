@@ -91,6 +91,9 @@ void FEditorControlsPanel::OnRender()
 
 	ImGui::Dummy(ImVec2(0.0f, SubsectionGap));
 	ImGui::SeparatorText("Light Spawn");
+	if (ImGui::Button("Ambient Light"))
+		World->SpawnActor(AAmbientLight::StaticClass());
+	ImGui::SameLine();
 	if (ImGui::Button("Directional Light"))
 		World->SpawnActor(ADirectionalLight::StaticClass());
 	ImGui::SameLine();

@@ -81,6 +81,8 @@ void FSceneRenderer::InitViews(FRenderer* Renderer,
 	// 월드 프리미티브 수집 및 절두체 컬링
 	GatherRenderPackets(World->GetScene(), RenderData, CachedViewContext, &View.Frustum, Renderer);
 	RenderData.AmbientLight = AmbientLight;
+	if (const FAmbientLightSceneProxy* Ambient = World->GetScene().GetActiveAmbientLight(View.bGameView))
+		RenderData.AmbientLight = Ambient->GetRenderData();
 	if (bUseSkyLight)
 	{
 		if (const FSkyLightSceneProxy* SkyLight = World->GetScene().GetActiveSkyLight(View.bGameView))
@@ -144,7 +146,7 @@ bool FSceneRenderer::BindDeferredLighting(FRenderer* Renderer, uint32 Width, uin
 	Constants.ViewportSize = FVector4(static_cast<float>(Width), static_cast<float>(Height), 0.0f, 0.0f);
 	Renderer->UpdateConstant(LightResources.GetDeferredConstants(), &Constants, sizeof(Constants));
 	Renderer->BindConstant(0, LightResources.GetDeferredConstants(), EShaderBindFlagBits::Pixel);
-	Renderer->BindStructured(3, LightCounts[0] || LightCounts[1] || LightCounts[2] ? LightResources.GetSceneLights() : nullptr, EShaderBindFlagBits::Pixel);
+	Renderer->BindStructured(5, LightCounts[0] || LightCounts[1] || LightCounts[2] ? LightResources.GetSceneLights() : nullptr, EShaderBindFlagBits::Pixel);
 	Renderer->BindCube(4, Sky ? Sky->GetIrradianceCube() : nullptr, EShaderBindFlagBits::Pixel);
 	Renderer->BindSampler(1, ESamplerState::LinearClamp, EShaderBindFlagBits::Pixel);
 	return true;
@@ -252,7 +254,8 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 		const FRenderGraphTextureDesc GBufferDesc{ Width, Height, DXGI_FORMAT_R8G8B8A8_UNORM };
 		const FRenderGraphTextureRef BaseColor = Graph.CreateTexture(GBufferDesc, "BaseColorMetallic"); // 임시 텍스쳐 생성
 		const FRenderGraphTextureRef Normal = Graph.CreateTexture(HDRDesc, "NormalRoughness");
-		if (!BaseColor || !Normal)
+		const FRenderGraphTextureRef Specular = Graph.CreateTexture(HDRDesc, "SpecularShininess");
+		if (!BaseColor || !Normal || !Specular)
 			return false;
 		NormalRoughnessRef = Normal;
 
@@ -262,7 +265,8 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 			GBuffer.Name = "GBuffer";
 			GBuffer.ColorAttachments = {
 				{ BaseColor, ERenderGraphLoadAction::Clear, { 0.0f, 0.0f, 0.0f, 0.0f } },
-				{ Normal, ERenderGraphLoadAction::Clear, { 0.0f, 0.0f, 0.0f, 0.0f } }
+				{ Normal, ERenderGraphLoadAction::Clear, { 0.0f, 0.0f, 0.0f, 0.0f } },
+				{ Specular, ERenderGraphLoadAction::Clear, { 0.0f, 0.0f, 0.0f, 32.0f } }
 			}; // GBuffer Pass 에는 BaseColor 와 Normal Texture가 Clear된 상태로 필요하다
 
 			GBuffer.DepthAttachment = { Depth, ERenderGraphLoadAction::Clear, 1.0f, 0 }; // GBuffer Pass 에는 Depth Texture가 Clear된 상태로 필요하다
@@ -284,11 +288,11 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 
 			FRenderGraphRasterPassDesc LightingPass{};
 			LightingPass.Name = "DeferredLighting";
-			LightingPass.ReadTextures = { BaseColor, Normal, Depth };
+			LightingPass.ReadTextures = { BaseColor, Normal, Depth, Specular };
 			LightingPass.ColorAttachments = {
 				{ LightingHDR, ERenderGraphLoadAction::Clear, { 0.0f, 0.0f, 0.0f, 1.0f } }
 			};
-			if (!Graph.AddRasterPass(std::move(LightingPass), [this, Renderer, &Graph, BaseColor, Normal, Depth, Width, Height]
+			if (!Graph.AddRasterPass(std::move(LightingPass), [this, Renderer, &Graph, BaseColor, Normal, Depth, Specular, Width, Height]
 				{
 					if (!bCorePassSucceeded) return;
 					if (!BindDeferredLighting(Renderer, Width, Height))
@@ -296,14 +300,14 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 						bCorePassSucceeded = false;
 						return;
 					}
-					const std::array<FTexture2D*, 3> Textures =
-						{ Graph.Resolve(BaseColor), Graph.Resolve(Normal), Graph.Resolve(Depth) };
+					const std::array<FTexture2D*, 4> Textures =
+						{ Graph.Resolve(BaseColor), Graph.Resolve(Normal), Graph.Resolve(Depth), Graph.Resolve(Specular) };
 					if (FPipelineState* Pipeline = FRenderResourceManager::GetPSO(EPSOType::DeferredLighting);
 						Pipeline && Pipeline->Shader && Pipeline->Shader->VertexShader && Pipeline->Shader->PixelShader)
 						Renderer->DrawFullscreen(*Pipeline, Textures);
 					else
 						bCorePassSucceeded = false;
-					Renderer->UnbindResources(3, 2, EShaderBindFlagBits::Pixel);
+					Renderer->UnbindResources(4, 2, EShaderBindFlagBits::Pixel);
 				})) return false;
 		}
 		else

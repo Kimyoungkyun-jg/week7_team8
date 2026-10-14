@@ -72,7 +72,11 @@ void FSettingsPanel::OnRender()
 			? "Sky Light active; Ambient controls are unused."
 			: "Ambient active: Sky Light cubemap unavailable.");
 	}
-	ImGui::BeginDisabled(bSkyLightReady);
+	const bool bAmbientComponentActive = World &&
+		World->GetScene().GetActiveAmbientLight(World->GetWorldType() == PIE);
+	if (bAmbientComponentActive && !bSkyLightReady)
+		ImGui::TextDisabled("Ambient Light component active; edit its color and intensity in Details.");
+	ImGui::BeginDisabled(bSkyLightReady || bAmbientComponentActive);
 	ImGui::SetNextItemWidth(200.0f);
 	ImGui::ColorEdit3("Ambient Color", &Settings.AmbientColor.X);
 	ImGui::SetNextItemWidth(200.0f);

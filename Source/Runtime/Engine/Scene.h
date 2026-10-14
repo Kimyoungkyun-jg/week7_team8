@@ -17,6 +17,9 @@ public:
 	void RemovePrimitive(UPrimitiveComponent* Component);
 	// 모든 프록시를 한 번에 지운다. 액터를 통째로 지우기 전(ClearWorld)에 불러야 지워진 컴포넌트를 가리키는 프록시가 남지 않는다.
 	void RemoveAllPrimitives();
+	void AddAmbientLight(class UAmbientLightComponent* Component);
+	void RemoveAmbientLight(class UAmbientLightComponent* Component);
+	const class FAmbientLightSceneProxy* GetActiveAmbientLight(bool bGameView) const;
 	void AddPointLight(class UPointLightComponent* Component);
 	void RemovePointLight(class UPointLightComponent* Component);
 	void AddDirectionalLight(class UDirectionalLightComponent* Component);
@@ -44,6 +47,7 @@ public:
 
 
 	TArray<FPrimitiveSceneProxy*> Proxies;
+	TArray<class FAmbientLightSceneProxy*> AmbientLights;
 	TArray<class FPointLightSceneProxy*> PointLights;
 	TArray<class FDirectionalLightSceneProxy*> DirectionalLights;
 	TArray<class FSpotLightSceneProxy*> SpotLights;

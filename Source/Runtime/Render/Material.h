@@ -12,6 +12,7 @@ struct FStaticMeshMaterialParams
 	FVector2 UVOffset;
 	FVector2 TextureFlags; // x: 노멀맵 사용 여부
 };
+static_assert(sizeof(FStaticMeshMaterialParams) == 32);
 
 class UMaterial : public UMaterialInterface
 {
@@ -31,6 +32,8 @@ public:
 
 
 	FVector4 BaseColor = FVector4(1, 1, 1, 1);
+	FVector SpecularColor = FVector(1.0f, 1.0f, 1.0f);
+	float Shininess = 32.0f;
 	FVector2 UVScrollSpeed = FVector2(0.0f, 0.0f);
 
 	bool bIsInstance = false;
