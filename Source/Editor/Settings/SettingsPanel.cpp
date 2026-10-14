@@ -59,30 +59,6 @@ void FSettingsPanel::OnRender()
 	ImGui::Checkbox("Tiled Light Culling", &Settings.bEnableTiledLightCulling);
 	ImGui::TextDisabled("Forward Lambert/Phong only; off evaluates all visible local lights.");
 	ImGui::Checkbox("Use Sky Light", &Settings.bUseSkyLight);
-	bool bSkyLightReady = false;
-	if (!Settings.bUseSkyLight)
-		ImGui::TextDisabled("Ambient active (Sky Light off).");
-	else if (!World || !World->GetScene().GetActiveSkyLight(World->GetWorldType() == PIE))
-		ImGui::TextDisabled("Ambient active: no enabled Sky Light actor.");
-	else
-	{
-		const FSkyLightSceneProxy* SkyLight = World->GetScene().GetActiveSkyLight(World->GetWorldType() == PIE);
-		bSkyLightReady = World->GetScene().FindSkyLightEnvironment(SkyLight->GetRenderData().SourcePath) != nullptr;
-		ImGui::TextDisabled(bSkyLightReady
-			? "Sky Light active; Ambient controls are unused."
-			: "Ambient active: Sky Light cubemap unavailable.");
-	}
-	const bool bAmbientComponentActive = World &&
-		World->GetScene().GetActiveAmbientLight(World->GetWorldType() == PIE);
-	if (bAmbientComponentActive && !bSkyLightReady)
-		ImGui::TextDisabled("Ambient Light component active; edit its color and intensity in Details.");
-	ImGui::BeginDisabled(bSkyLightReady || bAmbientComponentActive);
-	ImGui::SetNextItemWidth(200.0f);
-	ImGui::ColorEdit3("Ambient Color", &Settings.AmbientColor.X);
-	ImGui::SetNextItemWidth(200.0f);
-	ImGui::DragFloat("Ambient Intensity", &Settings.AmbientIntensity, 0.01f,
-		0.0f, 10.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
-	ImGui::EndDisabled();
 
 	ImGui::Dummy(ImVec2(0.0f, SectionGap));
 	ImGui::SeparatorText("Scene Depth");
@@ -182,10 +158,6 @@ bool FSettingsPanel::SaveSettings() const
 	File << "RenderingPath=" << (Settings.RenderingPath == ERenderingPath::Forward ? "Forward" : "Deferred") << "\n";
 	File << "LightingModel=" << (Settings.LightingModel == ELightingModel::Gouraud ? "Gouraud" :
 		Settings.LightingModel == ELightingModel::Lambert ? "Lambert" : "Phong") << "\n";
-	File << "AmbientColorR=" << Settings.AmbientColor.X << "\n";
-	File << "AmbientColorG=" << Settings.AmbientColor.Y << "\n";
-	File << "AmbientColorB=" << Settings.AmbientColor.Z << "\n";
-	File << "AmbientIntensity=" << Settings.AmbientIntensity << "\n";
 	File << "\n";
 
 	File << "[Editor]\n";
@@ -324,19 +296,6 @@ bool FSettingsPanel::LoadSettings()
 					if (ValueStr == "Gouraud") Settings.LightingModel = ELightingModel::Gouraud;
 					else if (ValueStr == "Lambert") Settings.LightingModel = ELightingModel::Lambert;
 					else if (ValueStr == "Phong") Settings.LightingModel = ELightingModel::Phong;
-				}
-				else if (Key == "AmbientColorR" || Key == "AmbientColorG" ||
-					Key == "AmbientColorB" || Key == "AmbientIntensity")
-				{
-					std::istringstream Number(ValueStr);
-					float Value;
-					if (Number >> Value && std::isfinite(Value))
-					{
-						if (Key == "AmbientColorR") Settings.AmbientColor.X = FMath::Clamp(Value, 0.0f, 1.0f);
-						else if (Key == "AmbientColorG") Settings.AmbientColor.Y = FMath::Clamp(Value, 0.0f, 1.0f);
-						else if (Key == "AmbientColorB") Settings.AmbientColor.Z = FMath::Clamp(Value, 0.0f, 1.0f);
-						else Settings.AmbientIntensity = FMath::Clamp(Value, 0.0f, 10.0f);
-					}
 				}
 
 				else if (Key == "CameraMoveSpeed") Settings.CameraSpeed = std::stof(ValueStr);
