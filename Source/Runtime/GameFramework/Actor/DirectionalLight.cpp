@@ -3,7 +3,7 @@
 
 ADirectionalLight::ADirectionalLight()
 {
-	SetLightIcon("Editor/Icon/PointLight_64x.png");
+	SetLightIcon("Editor/Icon/DirectionalLight_64x.png");
 	DirectionalLightComponent = CreateDefaultSubobject<UDirectionalLightComponent>("UDirectionalLightComponent");
 	DirectionalLightComponent->SetupAttachment(GetRootComponent());
 }
