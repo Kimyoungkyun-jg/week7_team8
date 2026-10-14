@@ -10,7 +10,7 @@ struct FStaticMeshMaterialParams
 {
 	FVector4 BaseColor;
 	FVector2 UVOffset;
-	FVector2 TextureFlags; // x: 노멀맵 사용 여부
+	FVector2 TextureFlags; // x: 노멀맵 인코딩, y: 노멀맵 Y 반전
 };
 static_assert(sizeof(FStaticMeshMaterialParams) == 32);
 
@@ -35,6 +35,7 @@ public:
 	FVector SpecularColor = FVector(1.0f, 1.0f, 1.0f);
 	float Shininess = 32.0f;
 	FVector2 UVScrollSpeed = FVector2(0.0f, 0.0f);
+	bool bFlipNormalY = false;
 
 	bool bIsInstance = false;
 

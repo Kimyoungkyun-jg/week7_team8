@@ -4,6 +4,7 @@
 #include "RenderCommand.h"
 
 #include "RenderUtil.h"
+#include <cstring>
 
 
 
@@ -35,7 +36,7 @@ constexpr FPipelineTableEntry PipelineTable[] =
 	{ EPSOType::FireBall,               "Resources/Shader/FireBallShader.hlsl",             D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, ERasterizerState::SolidNone, EBlendState::Additive,     EDepthStencilState::ReadOnly },
 	{ EPSOType::Billboard,              "Resources/Shader/BillboardShader.hlsl",            D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, ERasterizerState::SolidNone, EBlendState::AlphaBlend,   EDepthStencilState::ReadOnly },
 	{ EPSOType::StaticMesh_Forward,		"Resources/Shader/UberLit.hlsl",			D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST,			ERasterizerState::SolidBack, EBlendState::Opaque, EDepthStencilState::Default },
-	{ EPSOType::StaticMesh_WorldNormal, "Resources/Shader/WorldNormalShader.hlsl", D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, ERasterizerState::SolidBack, EBlendState::Opaque, EDepthStencilState::Default },
+	{ EPSOType::StaticMesh_WorldNormal, "Resources/Shader/UberLit.hlsl", D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, ERasterizerState::SolidBack, EBlendState::Opaque, EDepthStencilState::Default },
 	{ EPSOType::StaticMesh_DepthOnly, "Resources/Shader/DepthPrepass.hlsl", D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, ERasterizerState::SolidBack, EBlendState::NoColorWrite, EDepthStencilState::Default },
 	{ EPSOType::LightCullingDebug, "Resources/Shader/LightCullingDebug.hlsl", D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, ERasterizerState::SolidNone, EBlendState::AlphaBlend, EDepthStencilState::Disabled },
 };
@@ -50,22 +51,23 @@ void FRenderResourceManager::InitPipelineStates()
 		const EPSOType Type = static_cast<EPSOType>(i);
 		PipelineStateMap[Type] = MakeUnique<FPipelineState>();
 		FPipelineState* State = PipelineStateMap[Type].get();
-		State->Shader = GetShaderProgram(Entry.ShaderPath);
+		// World Normal은 전용 매크로 변형이 성공했을 때만 연결한다.
+		State->Shader = Type == EPSOType::StaticMesh_WorldNormal ? nullptr : GetShaderProgram(Entry.ShaderPath);
 		State->Topology = Entry.Topology;
 		State->RasterizerState = Entry.RasterizerState;
 		State->BlendState = Entry.BlendState;
 		State->DepthStencilState = Entry.DepthStencilState;
 	}
-	const char* Names[] = { "LIGHTING_MODEL_GOURAUD", "LIGHTING_MODEL_LAMBERT", "LIGHTING_MODEL_PHONG" };
-	for (uint32 Index = 0; Index < 3; ++Index)
+	const char* Names[] = { "LIGHTING_MODEL_GOURAUD", "LIGHTING_MODEL_LAMBERT", "LIGHTING_MODEL_PHONG", "VIEW_MODE_WORLD_NORMAL" };
+	for (const char* Name : Names)
 	{
-		const D3D_SHADER_MACRO Defines[] = { { Names[Index], "1" }, { nullptr, nullptr } };
+		const D3D_SHADER_MACRO Defines[] = { { Name, "1" }, { nullptr, nullptr } };
 		const FString Path = "Resources/Shader/UberLit.hlsl";
 		FShaderByteCode VSCode = RenderUtil::CompileShader(Path, "mainVS", EShaderType::Vertex, Defines);
 		FShaderByteCode PSCode = RenderUtil::CompileShader(Path, "mainPS", EShaderType::Pixel, Defines);
 		if (!VSCode.IsValid() || !PSCode.IsValid())
 		{
-			HTR_LOG(Error, "[Shader] forward variant compile failed: {}", Names[Index]);
+			HTR_LOG(Error, "[Shader] UberShader variant compile failed: {}", Name);
 			continue;
 		}
 		auto VS = RenderCommand::CreateVertexShader(VSCode);
@@ -76,10 +78,12 @@ void FRenderResourceManager::InitPipelineStates()
 		}
 		FVertexShader* VSRaw = VS.get();
 		FPixelShader* PSRaw = PS.get();
-		const FString Key = Path + "#" + Names[Index];
+		const FString Key = Path + "#" + Name;
 		VertexShaderMap[Key + "#VS"] = std::move(VS);
 		PixelShaderMap[Key + "#PS"] = std::move(PS);
 		ShaderProgramMap[Key] = MakeUnique<FShaderProgram>(VSRaw, PSRaw);
+		if (std::strcmp(Name, "VIEW_MODE_WORLD_NORMAL") == 0)
+			PipelineStateMap[EPSOType::StaticMesh_WorldNormal]->Shader = ShaderProgramMap[Key].get();
 	}
 }
 

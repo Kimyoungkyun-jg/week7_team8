@@ -2,13 +2,13 @@
 #include "LightEvaluation.hlsli"
 
 // 셰이더 스캐너는 매크로 정의 없이 이 파일을 컴파일하므로 기본 변형에는 Lambert를 쓴다.
-// 명시적인 변형은 컴파일할 때 조명 모델 하나만 1로 설정한다.
-#if !defined(LIGHTING_MODEL_GOURAUD) && !defined(LIGHTING_MODEL_LAMBERT) && !defined(LIGHTING_MODEL_PHONG)
+// 명시적인 변형은 조명 모델 또는 뷰 모드 하나만 1로 설정한다.
+#if !defined(LIGHTING_MODEL_GOURAUD) && !defined(LIGHTING_MODEL_LAMBERT) && !defined(LIGHTING_MODEL_PHONG) && !defined(VIEW_MODE_WORLD_NORMAL)
     #define LIGHTING_MODEL_LAMBERT 1
 #endif
 
-#if (LIGHTING_MODEL_GOURAUD + LIGHTING_MODEL_LAMBERT + LIGHTING_MODEL_PHONG) != 1
-    #error Exactly one lighting model must be enabled.
+#if (LIGHTING_MODEL_GOURAUD + LIGHTING_MODEL_LAMBERT + LIGHTING_MODEL_PHONG + VIEW_MODE_WORLD_NORMAL) != 1
+    #error Exactly one lighting model or view mode must be enabled.
 #endif
 
 struct FAmbientLightInfo
@@ -61,7 +61,7 @@ cbuffer MaterialParams : register(b2)
 {
     float4 BaseColor;
     float4 Emissive;
-    float4 SurfaceParams; // xy: 예약, z: 컬러 텍스처 사용, w: 노멀맵 인코딩
+    float4 SurfaceParams; // x: 노멀맵 Y 반전, y: 예약, z: 컬러 텍스처 사용, w: 노멀맵 인코딩
     float4 UVTransform; // xy: 이동량, zw: 배율
     float4 SpecularColorShininess; // rgb: 정반사 색상, w: 광택 지수
 };
@@ -89,25 +89,18 @@ struct VS_OUT
 #if LIGHTING_MODEL_GOURAUD
     float3 VertexDiffuse : TEXCOORD1;
     float3 VertexSpecular : TEXCOORD2;
-#else
+#elif !VIEW_MODE_WORLD_NORMAL
     float3 WorldPosition : TEXCOORD1;
 #endif
 };
 
-struct FForwardOutput
+struct FUberOutput
 {
     float4 LitColor : SV_Target0;
+#if !VIEW_MODE_WORLD_NORMAL
     float4 NormalRoughness : SV_Target1;
+#endif
 };
-
-float3 ResolveWorldNormal(float3 WorldNormal, float4 WorldTangent, float3 MapNormal)
-{
-    float3 N = normalize(WorldNormal);
-    float3 T = WorldTangent.xyz - N * dot(N, WorldTangent.xyz);
-    T *= rsqrt(max(dot(T, T), 1.0e-8f));
-    float3 B = cross(N, T) * WorldTangent.w;
-    return normalize(T * MapNormal.x + B * MapNormal.y + N * MapNormal.z);
-}
 
 float3 DecodeMapNormal(float3 Sample, float Encoding)
 {
@@ -119,6 +112,33 @@ float3 DecodeMapNormal(float3 Sample, float Encoding)
     return Sample * 2.0f - 1.0f;
 }
 
+// 조명과 World Normal 보기가 같은 노멀맵 해석 및 TBN 변환을 사용한다.
+float3 GetShadingNormal(VS_OUT Input)
+{
+    float LengthSquared = dot(Input.WorldNormal, Input.WorldNormal);
+    float3 N = LengthSquared > 1.0e-8f
+        ? Input.WorldNormal * rsqrt(LengthSquared)
+        : float3(0.0f, 0.0f, 1.0f);
+    if (SurfaceParams.w > 0.5f)
+    {
+        float3 MapNormal = DecodeMapNormal(NormalTexture.Sample(ColorSampler, Input.UV).xyz, SurfaceParams.w);
+        if (SurfaceParams.x > 0.5f) MapNormal.y = -MapNormal.y;
+        float3 T = Input.WorldTangent.xyz - N * dot(N, Input.WorldTangent.xyz);
+        float TangentLengthSquared = dot(T, T);
+        if (TangentLengthSquared > 1.0e-8f)
+        {
+            T *= rsqrt(TangentLengthSquared);
+            float3 B = cross(N, T) * Input.WorldTangent.w;
+            float3 MappedNormal = T * MapNormal.x + B * MapNormal.y + N * MapNormal.z;
+            float MappedLengthSquared = dot(MappedNormal, MappedNormal);
+            if (MappedLengthSquared > 1.0e-8f)
+                N = MappedNormal * rsqrt(MappedLengthSquared);
+        }
+    }
+    return N;
+}
+
+#if !VIEW_MODE_WORLD_NORMAL
 float3 CalculateAmbientLight(FAmbientLightInfo Info)
 {
     return Info.ColorIntensity.rgb * max(Info.ColorIntensity.a, 0.0f);
@@ -251,6 +271,8 @@ FLightResult CalculateTiledLighting(float2 PixelPosition, float3 P,
     return Result;
 }
 
+#endif
+
 VS_OUT Uber_VS(VS_IN Input)
 {
     VS_OUT Output;
@@ -269,14 +291,19 @@ VS_OUT Uber_VS(VS_IN Input)
     FLightResult Lit = CalculateLighting(WorldPosition.xyz, N, true);
     Output.VertexDiffuse = Lit.Diffuse;
     Output.VertexSpecular = Lit.Specular;
-#else
+#elif !VIEW_MODE_WORLD_NORMAL
     Output.WorldPosition = WorldPosition.xyz;
 #endif
     return Output;
 }
 
-FForwardOutput Uber_PS(VS_OUT Input)
+FUberOutput Uber_PS(VS_OUT Input)
 {
+    FUberOutput Output;
+    float3 ShadingNormal = GetShadingNormal(Input);
+#if VIEW_MODE_WORLD_NORMAL
+    Output.LitColor = float4(ShadingNormal * 0.5f + 0.5f, 1.0f);
+#else
     float4 SurfaceColor;
     if (SurfaceParams.z > 0.5f)
     {
@@ -288,12 +315,6 @@ FForwardOutput Uber_PS(VS_OUT Input)
         SurfaceColor = Input.Color;
     }
     float3 Albedo = SurfaceColor.rgb * BaseColor.rgb;
-    float3 ShadingNormal = normalize(Input.WorldNormal);
-    if (SurfaceParams.w > 0.5f)
-    {
-        float3 MapNormal = DecodeMapNormal(NormalTexture.Sample(ColorSampler, Input.UV).xyz, SurfaceParams.w);
-        ShadingNormal = ResolveWorldNormal(Input.WorldNormal, Input.WorldTangent, MapNormal);
-    }
     float3 Diffuse;
     float3 Specular = 0.0f;
 
@@ -310,13 +331,13 @@ FForwardOutput Uber_PS(VS_OUT Input)
     Specular = Lit.Specular;
 #endif
 
-    FForwardOutput Output;
     Output.LitColor = float4(Albedo * Diffuse + Specular + Emissive.rgb,
         SurfaceColor.a * BaseColor.a);
     Output.NormalRoughness = float4(ShadingNormal, 0.8f);
+#endif
     return Output;
 }
 
 // 현재 리소스 매니저는 .hlsl 파일을 스캔할 때 mainVS/mainPS 진입점을 찾는다.
 VS_OUT mainVS(VS_IN Input) { return Uber_VS(Input); }
-FForwardOutput mainPS(VS_OUT Input) { return Uber_PS(Input); }
+FUberOutput mainPS(VS_OUT Input) { return Uber_PS(Input); }

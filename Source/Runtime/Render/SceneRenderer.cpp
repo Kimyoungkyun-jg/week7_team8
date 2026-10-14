@@ -214,16 +214,12 @@ bool FSceneRenderer::AddWorldNormalPass(FRenderGraphBuilder& Graph, FRenderer* R
 	return Graph.AddRasterPass(std::move(Pass), [this, Renderer, bDrawPrimitives = Options.bDrawPrimitives]
 		{
 			if (!bDrawPrimitives) return;
-			PrepareDrawData(Renderer, RenderData);
 			FMeshPassProcessor Processor;
 			std::vector<FMeshDrawBatch> Batches;
 			bCorePassSucceeded = Processor.Build(View, RenderData.RenderQueue,
 				&RenderData, EMeshPassType::WorldNormal, Batches);
 			if (bCorePassSucceeded)
-			{
-				Renderer->UploadViewMatrix(View.ViewProjectionMatrix);
 				Renderer->DrawMeshes(Batches);
-			}
 		});
 }
 

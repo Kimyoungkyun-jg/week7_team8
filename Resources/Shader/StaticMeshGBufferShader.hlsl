@@ -15,7 +15,7 @@ cbuffer MaterialParams : register(b1)
 {
     float4 BaseColor;
     float2 UVOffset;
-    float2 TextureFlags; // x: 노멀맵 인코딩
+    float2 TextureFlags; // x: 노멀맵 인코딩, y: 노멀맵 Y 반전
 };
 
 struct VS_INPUT
@@ -91,6 +91,7 @@ GBUFFER_OUTPUT mainPS(PS_INPUT Input)
     if (TextureFlags.x > 0.5f)
     {
         float3 MapNormal = DecodeMapNormal(NormalTexture.Sample(ColorSampler, Input.UV + UVOffset).xyz, TextureFlags.x);
+        if (TextureFlags.y > 0.5f) MapNormal.y = -MapNormal.y;
         Normal = ResolveWorldNormal(Input.WorldNormal, Input.WorldTangent, MapNormal);
     }
 

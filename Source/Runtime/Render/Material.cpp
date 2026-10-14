@@ -36,6 +36,7 @@ UMaterial* UMaterial::CreateInstance(const UMaterial* Source)
 	Instance->SpecularColor = Source->SpecularColor;
 	Instance->Shininess = Source->Shininess;
 	Instance->UVScrollSpeed = Source->UVScrollSpeed;
+	Instance->bFlipNormalY = Source->bFlipNormalY;
 	Instance->PSOType = Source->PSOType;
 	Instance->SamplerState = Source->SamplerState;
 
@@ -83,6 +84,7 @@ json UMaterial::SaveMaterial(const UMaterial* Material)
 	Out["BaseColor"] = Material->BaseColor;
 	Out["SpecularColor"] = Material->SpecularColor;
 	Out["Shininess"] = Material->Shininess;
+	Out["FlipNormalY"] = Material->bFlipNormalY;
 	Out["UVScrollSpeed"] = {
 		Material->UVScrollSpeed.X,
 		Material->UVScrollSpeed.Y
@@ -132,6 +134,8 @@ UMaterial* UMaterial::LoadMaterial(const json& In)
 		In["SpecularColor"].get_to(Instance->SpecularColor);
 	if (In.contains("Shininess"))
 		Instance->Shininess = std::max(1.0f, In["Shininess"].get<float>());
+	if (In.contains("FlipNormalY"))
+		Instance->bFlipNormalY = In["FlipNormalY"].get<bool>();
 	if (In.contains("Textures"))
 	{
 		Instance->Textures.Reset();

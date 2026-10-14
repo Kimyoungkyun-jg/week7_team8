@@ -492,6 +492,24 @@ namespace
 					ImGui::PopID();
 
 					ImGui::TableNextRow();
+					ImGui::TableSetColumnIndex(0);
+					ImGui::Text("Flip Normal Y");
+					ImGui::TableSetColumnIndex(1);
+					bool bFlipNormalY = Effective && Effective->bFlipNormalY;
+					if (ImGui::Checkbox("##FlipNormalY", &bFlipNormalY))
+					{
+						Override = EnsureMaterialOverride(MeshComponent, Slot, Effective, Override);
+						if (Override)
+						{
+							Override->bFlipNormalY = bFlipNormalY;
+							MeshComponent->OnPropertyChanged("OverrideMaterials");
+							Effective = Override;
+						}
+					}
+					if (ImGui::IsItemHovered())
+						ImGui::SetTooltip("Invert the tangent-space normal's Y (green) channel.");
+
+					ImGui::TableNextRow();
 
 					// 3: Base Color
 					ImGui::TableSetColumnIndex(0);

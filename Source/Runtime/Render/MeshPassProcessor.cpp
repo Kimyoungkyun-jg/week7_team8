@@ -43,23 +43,15 @@ namespace
 		Batch.VertexBuffer = Mesh->GetVertexBuffer(LOD);
 		Batch.IndexBuffer = Mesh->GetIndexBuffer(LOD);
 		if (!Batch.VertexBuffer || !Batch.IndexBuffer) return false;
-		if (Pass == EMeshPassType::WorldNormal)
+		const bool bUsesUberShader = Pass == EMeshPassType::Forward || Pass == EMeshPassType::WorldNormal;
+		if (bUsesUberShader)
 		{
-			FPipelineState* Pipeline = FRenderResourceManager::GetPSO(EPSOType::StaticMesh_WorldNormal);
-			if (!Pipeline || !Pipeline->Shader || !Pipeline->Shader->VertexShader || !Pipeline->Shader->PixelShader)
-				return false;
-			Batch.Pipeline = *Pipeline;
-			FStaticMeshMaterialParams Params{};
-			Params.UVOffset = Material->UVScrollSpeed * EngineTimer::GetTotalTime();
-			Params.TextureFlags.X = GetNormalEncoding(Material->Textures.Num() > 1 ? Material->Textures[1] : nullptr);
-			std::memcpy(Batch.MaterialData.data(), &Params, sizeof(Params));
-			Batch.MaterialDataSize = sizeof(Params);
-		}
-		else if (Pass == EMeshPassType::Forward)
-		{
-			FPipelineState* Base = FRenderResourceManager::GetPSO(EPSOType::StaticMesh_Forward);
-			FShaderProgram* Shader = FRenderResourceManager::GetForwardShaderProgram(LightingModel);
-			if (!Base || !Shader) return false;
+			const bool bWorldNormal = Pass == EMeshPassType::WorldNormal;
+			FPipelineState* Base = FRenderResourceManager::GetPSO(bWorldNormal
+				? EPSOType::StaticMesh_WorldNormal : EPSOType::StaticMesh_Forward);
+			FShaderProgram* Shader = bWorldNormal ? (Base ? Base->Shader : nullptr)
+				: FRenderResourceManager::GetForwardShaderProgram(LightingModel);
+			if (!Base || !Shader || !Shader->VertexShader || !Shader->PixelShader) return false;
 			Batch.Pipeline = *Base;
 			Batch.Pipeline.Shader = Shader;
 			Batch.bUseObjectSlots = false;
@@ -68,7 +60,7 @@ namespace
 			Batch.MaterialSlot = 2;
 			Batch.MaterialStages = EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel;
 			Batch.SamplerStages = Batch.MaterialStages;
-			Batch.bForceWireframe = View.bIsWireframe;
+			Batch.bForceWireframe = !bWorldNormal && View.bIsWireframe;
 
 			FForwardMaterialConstants Params{};
 			Params.BaseColor = Material->BaseColor;
@@ -77,7 +69,7 @@ namespace
 			UTexture2D* Color = Material->Textures.IsEmpty() ? nullptr : Material->Textures[0];
 			UTexture2D* Normal = Material->Textures.Num() > 1 ? Material->Textures[1] : nullptr;
 			const bool bHasColor = Color && Color->GetResource() && Color->GetResource()->GetSRV();
-			Params.SurfaceParams = FVector4(0.0f, 0.0f, bHasColor ? 1.0f : 0.0f,
+			Params.SurfaceParams = FVector4(Material->bFlipNormalY ? 1.0f : 0.0f, 0.0f, bHasColor ? 1.0f : 0.0f,
 				GetNormalEncoding(Normal));
 			const FVector2 UV = Material->UVScrollSpeed * EngineTimer::GetTotalTime();
 			Params.UVTransform = FVector4(UV.X, UV.Y, 1.0f, 1.0f);
@@ -104,6 +96,7 @@ namespace
 				Params.BaseColor = Material->BaseColor;
 				Params.UVOffset = Material->UVScrollSpeed * EngineTimer::GetTotalTime();
 				Params.TextureFlags.X = GetNormalEncoding(Material->Textures.Num() > 1 ? Material->Textures[1] : nullptr);
+				Params.TextureFlags.Y = Material->bFlipNormalY ? 1.0f : 0.0f;
 				std::memcpy(Batch.MaterialData.data(), &Params, sizeof(Params));
 				Batch.MaterialDataSize = sizeof(Params);
 			}
@@ -118,15 +111,15 @@ namespace
 		for (uint32 Index = 0; Index < Material->Textures.Num(); ++Index)
 		{
 			// Forward 조명은 t8 이상을 전역 리소스에 사용한다.
-			if (Pass == EMeshPassType::Forward && Index >= 8) break;
+			if (bUsesUberShader && Index >= 8) break;
 			UTexture2D* Texture = Material->Textures[Index];
 			EShaderBindFlagBits Stages = EShaderBindFlagBits::Pixel;
-			if (Pass == EMeshPassType::Forward && Index == 1)
+			if (bUsesUberShader && Index == 1)
 				Stages = EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel;
-			if (Pass == EMeshPassType::Forward && Index == 0 &&
+			if (bUsesUberShader && Index == 0 &&
 				(!Texture || !Texture->GetResource() || !Texture->GetResource()->GetSRV()))
 				Texture = nullptr;
-			if (Pass == EMeshPassType::Forward && Index == 1 && GetNormalEncoding(Texture) <= 0.5f)
+			if (bUsesUberShader && Index == 1 && GetNormalEncoding(Texture) <= 0.5f)
 				Texture = nullptr;
 			Batch.Textures.push_back({ Texture, Stages });
 		}
@@ -143,7 +136,7 @@ namespace
 		Item.IndexCount = IndexCount;
 		Item.ObjectKey = ObjectKey;
 		Item.bOccludedByGpu = bOccludedByGpu;
-		if (Pass == EMeshPassType::Forward)
+		if (Pass == EMeshPassType::Forward || Pass == EMeshPassType::WorldNormal)
 		{
 			FForwardObjectConstants Constants{};
 			Constants.World = World;
