@@ -92,17 +92,8 @@ namespace
 				Params.BaseColor = Material->BaseColor;
 				Params.UVOffset = Material->UVScrollSpeed * EngineTimer::GetTotalTime();
 				Params.TextureFlags.X = GetNormalEncoding(Material->Textures.Num() > 1 ? Material->Textures[1] : nullptr);
-				UTexture2D* ColorTexture = Material->Textures.IsEmpty() ? nullptr : Material->Textures[0];
-				Params.TextureFlags.Y = ColorTexture && ColorTexture->GetResource() && ColorTexture->GetResource()->GetSRV() ? 1.0f : 0.0f;
 				std::memcpy(Batch.MaterialData.data(), &Params, sizeof(Params));
 				Batch.MaterialDataSize = sizeof(Params);
-				if (Pass == EMeshPassType::GBuffer)
-				{
-					const FVector4 Specular(Material->SpecularColor.X, Material->SpecularColor.Y,
-						Material->SpecularColor.Z, std::max(1.0f, Material->Shininess));
-					std::memcpy(Batch.MaterialData.data() + sizeof(Params), &Specular, sizeof(Specular));
-					Batch.MaterialDataSize += sizeof(Specular);
-				}
 			}
 			else if (OverrideParams && OverrideSize <= Batch.MaterialData.size())
 			{

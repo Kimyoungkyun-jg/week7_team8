@@ -9,6 +9,7 @@ class UPointLightComponent : public ULightComponent
 	DECLARE_CLASS(UPointLightComponent, ULightComponent)
 	REFLECT_START(UPointLightComponent)
 		PROPERTY(AttenuationRadius)
+		PROPERTY_RANGE(RadiusFallOff, 0.0f, 10.0f)
 		PROPERTY(bEnabled)
 	REFLECT_END()
 
