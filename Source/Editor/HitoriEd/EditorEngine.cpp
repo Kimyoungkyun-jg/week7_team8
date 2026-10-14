@@ -982,6 +982,7 @@ void UEditorEngine::RenderFrame(FEditorViewportClient *ViewClient,
 		const bool bDrawSelectedLight = bIsActiveViewport && Gizmo->GetTarget() &&
 			(Cast<ASpotLight>(Gizmo->GetTarget()->GetOwner()) ||
 			 Cast<APointLightActor>(Gizmo->GetTarget()->GetOwner()));
+		
 		if (SettingsPanel->GetSettings().bDrawBatchLine || bDrawSelectedLight) 
 		{
 			Overlays.EditorLines = [this, &SceneView, bDrawSelectedLight]

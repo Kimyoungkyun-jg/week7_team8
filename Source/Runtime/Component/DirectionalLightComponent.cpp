@@ -33,6 +33,13 @@ void UDirectionalLightComponent::OnPropertyChanged(const FString& PropertyName)
 		Direction = FVector(ClampAxis(Direction.X), ClampAxis(Direction.Y), ClampAxis(Direction.Z));
 	}
 	Super::OnPropertyChanged(PropertyName);
+	if (PropertyName == "Direction") OnDirectionChanged.Broadcast();
+}
+
+void UDirectionalLightComponent::OnTransformDirty()
+{
+	Super::OnTransformDirty();
+	OnDirectionChanged.Broadcast();
 }
 
 void UDirectionalLightComponent::CreateRenderState()

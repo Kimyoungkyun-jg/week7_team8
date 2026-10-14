@@ -23,6 +23,8 @@ public:
 	FVector GetWorldDirection() const;
 	void SetDirection(const FVector& InDirection);
 	void OnPropertyChanged(const FString& PropertyName) override;
+	void OnTransformDirty() override;
+	TMulticastDelegate<> OnDirectionChanged;
 
 protected:
 	bool ShouldCreateRenderState() const override { return true; }
