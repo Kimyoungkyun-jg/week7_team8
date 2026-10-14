@@ -96,9 +96,9 @@ bool FForwardLightTileGrid::PrepareBuild(const FSceneView& View, const FForwardL
 	if (!std::isfinite(Projection.M[1][0]) || std::abs(Projection.M[1][0]) < 1.0e-8f ||
 		!std::isfinite(Projection.M[2][1]) || std::abs(Projection.M[2][1]) < 1.0e-8f ||
 		!std::isfinite(Projection.M[0][2]) || !std::isfinite(Projection.M[3][2]) ||
-		(View.bIsPerspective ? std::abs(Projection.M[3][2]) : std::abs(Projection.M[0][2]) ||
-			!std::isfinite(View.NearClip) || !std::isfinite(View.FarClip) ||
-			View.NearClip <= 0.0f || View.FarClip <= View.NearClip) < 1.0e-8f)
+		(View.bIsPerspective ? std::abs(Projection.M[3][2]) : std::abs(Projection.M[0][2])) < 1.0e-8f ||
+		!std::isfinite(View.NearClip) || !std::isfinite(View.FarClip) ||
+		View.NearClip <= 0.0f || View.FarClip <= View.NearClip)
 		return false;
 	Constants.GridProjectionParams = FVector4(1.0f / Projection.M[1][0], 1.0f / Projection.M[2][1],
 		Projection.M[0][2], Projection.M[3][2]);

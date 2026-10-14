@@ -208,8 +208,9 @@ FLightResult CalculateLighting(float3 P, float3 Normal, bool bIncludeSpecular)
     return Result;
 }
 
-// 기존 함수에서 Off/Tiled/Clustered의 목록 선택을 함께 처리한다.
-FLightResult CalculateTiledLighting(float3 PixelPosition, float3 P, float3 Normal, bool bIncludeSpecular)
+// 타일 목록의 인덱스는 kim의 공유 SceneLights 안에서 종류별 시작 위치에 더한다.
+FLightResult CalculateTiledLighting(float3 PixelPosition, float3 P,
+    float3 Normal, bool bIncludeSpecular)
 {
     float3 N = normalize(Normal);
     float3 ToCamera = CameraPosition.xyz - P;

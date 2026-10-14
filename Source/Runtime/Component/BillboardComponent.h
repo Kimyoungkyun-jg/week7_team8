@@ -39,6 +39,7 @@ public:
 
 	UTexture2D* GetSprite() const;
 	void SetSprite(UTexture2D* InSprite);
+	void SetSpriteTint(const FVector4& InColor);
 
 protected:
 	UMaterial* Material = nullptr;

@@ -67,9 +67,7 @@ bool FSceneRenderer::IntersectSphereFrustum(const FVector4& PositionRadius, cons
 }
 
 // 가시성 검사 및 렌더 큐 수집
-void FSceneRenderer::InitViews(FRenderer* Renderer,
-	const FAmbientLightRenderData& AmbientLight,
-	bool bUseSkyLight)
+void FSceneRenderer::InitViews(FRenderer* Renderer, bool bUseSkyLight)
 {
 	bLightUploadSucceeded = false;
 	if (!World)
@@ -80,7 +78,7 @@ void FSceneRenderer::InitViews(FRenderer* Renderer,
 
 	// 월드 프리미티브 수집 및 절두체 컬링
 	GatherRenderPackets(World->GetScene(), RenderData, CachedViewContext, &View.Frustum, Renderer);
-	RenderData.AmbientLight = AmbientLight;
+	RenderData.AmbientLight = {};
 	if (const FAmbientLightSceneProxy* Ambient = World->GetScene().GetActiveAmbientLight(View.bGameView))
 		RenderData.AmbientLight = Ambient->GetRenderData();
 	if (bUseSkyLight)
@@ -468,7 +466,7 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 
 bool FSceneRenderer::AddViewportPasses(FRenderGraphBuilder& Graph, FRenderer* Renderer,
 	FSceneViewTargets& Targets, const FSceneRenderOptions& Options, FSkyboxRenderer* Skybox,
-	const FScenePassCallbacks& Callbacks)
+	const FScenePassCallbacks& Callbacks) // 뷰포트에 그려져야 되는 패스들을 옵션에 따라 정해진 순서로 Graph에 등록
 {
 	FSceneRenderOptions CoreOptions = Options;
 	if (Options.bShowLightCulling)

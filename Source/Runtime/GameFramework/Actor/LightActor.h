@@ -1,7 +1,6 @@
 #pragma once
 
 #include "GameFramework/Actor.h"
-#include "Component/BillboardComponent.h"
 
 // Common actor root for concrete lights.
 class ALightActor : public AActor
@@ -13,12 +12,5 @@ class ALightActor : public AActor
 
 public:
 	ALightActor();
-	UBillboardComponent* GetBillboardComponent() const { return BillboardComponent; }
 	virtual USceneComponent* GetLightComponent() const { return nullptr; }
-
-protected:
-	void SetLightIcon(const char* Path);
-
-private:
-	UBillboardComponent* BillboardComponent = nullptr;
 };

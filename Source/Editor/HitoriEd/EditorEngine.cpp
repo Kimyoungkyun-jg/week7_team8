@@ -595,10 +595,6 @@ void UEditorEngine::RenderViewports() {
 	const bool bIsPIE = (PlayWorld != nullptr);
 	const EPIEMode Mode = EditorUI ? EditorUI->GetPIEMode() : EPIEMode::SelectedViewport;
 	const FEditorSettings& RenderSettings = SettingsPanel->GetSettings();
-	const FAmbientLightRenderData AmbientLight{
-		FVector4(RenderSettings.AmbientColor.X, RenderSettings.AmbientColor.Y,
-			RenderSettings.AmbientColor.Z, RenderSettings.AmbientIntensity)
-	};
 
 	for (int32 ViewIndex = 0; ViewIndex < AllViewportClients.Num(); ++ViewIndex) {
 		FEditorViewportClient *ViewClient = AllViewportClients[ViewIndex];
@@ -641,7 +637,7 @@ void UEditorEngine::RenderViewports() {
 					SceneView = GameClient->CalcSceneView(ViewRect);
 
 					FSceneRenderer SceneRenderer(CurrentWorld, SceneView, GameClient->GetRenderData());
-					SceneRenderer.InitViews(Renderer, AmbientLight, RenderSettings.bUseSkyLight);
+					SceneRenderer.InitViews(Renderer, RenderSettings.bUseSkyLight);
 
 
 					RenderGameFrame(GameClient, SceneView, SceneRenderer, bIsSIEMode);
@@ -655,7 +651,7 @@ void UEditorEngine::RenderViewports() {
 			SceneView = ViewClient->CalcSceneView(ViewRect);
 
 			FSceneRenderer SceneRenderer(CurrentWorld, SceneView, ViewClient->GetRenderData());
-			SceneRenderer.InitViews(Renderer, AmbientLight, RenderSettings.bUseSkyLight);
+			SceneRenderer.InitViews(Renderer, RenderSettings.bUseSkyLight);
 
 			RenderFrame(ViewClient, SceneView, SceneRenderer, CurrentWorld, bIsGameView);
 		}
@@ -688,7 +684,7 @@ void UEditorEngine::RenderViewports() {
 					FRect ViewRect{0.0f, 0.0f, static_cast<float>(Width), static_cast<float>(Height)};
 					FSceneView SceneView = GameClient->CalcSceneView(ViewRect);
 					FSceneRenderer SceneRenderer(Context.World(), SceneView, GameClient->GetRenderData());
-					SceneRenderer.InitViews(Renderer, AmbientLight, RenderSettings.bUseSkyLight);
+					SceneRenderer.InitViews(Renderer, RenderSettings.bUseSkyLight);
 					RenderGameFrame(GameClient, SceneView, SceneRenderer);
 				}
 			}
@@ -1141,14 +1137,13 @@ void UEditorEngine::RenderActorUUIDs(const FSceneView &SceneView) {
 	for (AActor *Actor : TargetWorld->GetPersistentLevel()->GetActors()) {
 		if (!Actor)
 			continue;
-		UPrimitiveComponent *Primitive =
-				Cast<UPrimitiveComponent>(Actor->GetRootComponent());
+		USceneComponent* Root = Actor->GetRootComponent();
 
-		if (!Primitive)
+		if (!Root)
 			continue;
 
 		// 액터 머리 위 위치 계산
-		FBox Box = Primitive->CalcBounds();
+		FBox Box = Root->CalcBounds();
 		FVector UUIDLocation((Box.Min.X + Box.Max.X) * 0.5f,
 			(Box.Min.Y + Box.Max.Y) * 0.5f, Box.Max.Z + 0.5f);
 

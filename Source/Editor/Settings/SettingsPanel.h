@@ -23,8 +23,6 @@ struct FEditorSettings
 	bool bUseSkyLight = true;
 	ERenderingPath RenderingPath = ERenderingPath::Deferred;
 	ELightingModel LightingModel = ELightingModel::Gouraud;
-	FVector AmbientColor{ 0.5f, 0.5f, 0.5f };
-	float AmbientIntensity = 1.0f;
 
 	// Values
 	float SceneDepthMaxRange = 50.0f;

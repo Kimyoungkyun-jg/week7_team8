@@ -10,6 +10,13 @@ cbuffer Worldconstants : register(b2)
     matrix World;
 };
 
+cbuffer MaterialParams : register(b1)
+{
+    float4 BaseColor;
+    float2 UVOffset;
+    float2 MaterialPadding;
+};
+
 struct VS_INPUT
 {
     float3 position : POSITION;
@@ -37,5 +44,6 @@ PS_INPUT mainVS(VS_INPUT input)
 float4 mainPS(PS_INPUT input) : SV_TARGET
 {
     float4 color = SpriteTexture.Sample(SpriteSampler, input.uv);
+    color.rgb *= BaseColor.rgb;
     return color;
 }

@@ -16,6 +16,7 @@ public:
 	void SetEnabled(bool bInEnabled) { bEnabled = bInEnabled; OnPropertyChanged("bEnabled"); }
 
 protected:
+	const char* GetEditorIconPath() const override { return "Editor/Icon/SkyLight_64x.png"; }
 	bool ShouldCreateRenderState() const override { return true; }
 	void CreateRenderState() override;
 	void DestroyRenderState() override;

@@ -97,7 +97,8 @@ namespace
 			Batch.bForceWireframe = Pass == EMeshPassType::GBuffer && View.bIsWireframe;
 			if (Material->PSOType == EPSOType::StaticMesh_Opaque ||
 				Material->PSOType == EPSOType::StaticMesh_Translucent ||
-				Material->PSOType == EPSOType::StaticMesh_Wireframe)
+				Material->PSOType == EPSOType::StaticMesh_Wireframe ||
+				Material->PSOType == EPSOType::Billboard)
 			{
 				FStaticMeshMaterialParams Params{};
 				Params.BaseColor = Material->BaseColor;

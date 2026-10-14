@@ -1,5 +1,6 @@
 #include "EnginePCH.h"
 #include "BillboardComponent.h"
+#include "Component/LightComponentBase.h"
 
 #include "Asset/AssetManager.h"
 #include "Serialization/TypeSerializer.h"
@@ -17,6 +18,8 @@ UBillboardComponent::UBillboardComponent()
 // Billboard 컴포넌트의 소멸을 처리한다.
 UBillboardComponent::~UBillboardComponent()
 {
+	if (ULightComponentBase* Light = Cast<ULightComponentBase>(GetOuter()))
+		Light->OnEditorSpriteDestroyed(this);
 }
 
 // 기본 Mesh와 Material을 에셋 관리자에서 가져온다.
@@ -187,4 +190,13 @@ void UBillboardComponent::SetSprite(UTexture2D* InSprite)
 			Material->Textures[0] = InSprite;
 		OnPropertyChanged("Material");
 	}
+}
+
+void UBillboardComponent::SetSpriteTint(const FVector4& InColor)
+{
+	if (!Material) return;
+	if (!Material->bIsInstance) Material = UMaterial::CreateInstance(Material);
+	if (!Material) return;
+	Material->BaseColor = FVector4(InColor.X, InColor.Y, InColor.Z, Material->BaseColor.W);
+	OnPropertyChanged("Material");
 }

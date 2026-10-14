@@ -1031,9 +1031,11 @@ void FDetailsPanel::OnRender()
 
 void FDetailsPanel::DrawComponentTree(USceneComponent* SceneComp)
 {
-	if (!SceneComp) return;
+	if (!SceneComp || SceneComp->HasAnyFlags(EObjectFlags::RF_Transient)) return;
     
-	const bool bHasChildren = !SceneComp->GetAttachChildren().IsEmpty();
+	bool bHasChildren = false;
+	for (USceneComponent* Child : SceneComp->GetAttachChildren())
+		if (Child && !Child->HasAnyFlags(EObjectFlags::RF_Transient)) { bHasChildren = true; break; }
 	const bool bIsSelected = (SelectedComponent == SceneComp);
 	
 	ImGuiTreeNodeFlags NodeFlags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_DefaultOpen;

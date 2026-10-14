@@ -3,7 +3,6 @@
 
 ASpotLight::ASpotLight()
 {
-	SetLightIcon("Editor/Icon/SpotLight_64x.png");
 	SpotLightComponent = CreateDefaultSubobject<USpotLightComponent>("USpotLightComponent");
 	SpotLightComponent->SetupAttachment(GetRootComponent());
 }
