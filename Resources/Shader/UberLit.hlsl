@@ -153,9 +153,14 @@ void CalculatePointLight(inout FLightResult Result, FSceneLightRenderInfo Info,
 {
     float3 ToLight = Info.PositionRadius.xyz - P;
     float DistanceSquared = dot(ToLight, ToLight);
-    float Fade = CalculateDistanceAttenuation(DistanceSquared, Info.PositionRadius.w * Info.PositionRadius.w);
+    float RadiusSquared = Info.PositionRadius.w * Info.PositionRadius.w;
+    if (RadiusSquared <= 0.0f || DistanceSquared >= RadiusSquared || DistanceSquared < 1.0e-8f)
+        return;
+    float Distance = sqrt(max(DistanceSquared, 1.0e-6f));
+    // Deferred와 동일하게 Point Light의 RadiusFallOff를 반경 감쇠 지수로 사용한다.
+    float Fade = pow(saturate(1.0f - Distance / Info.PositionRadius.w), max(Info.Parameters.x, 0.0f));
     if (Fade <= 0.0f) return;
-    float3 L = ToLight / sqrt(max(DistanceSquared, 1.0e-6f));
+    float3 L = ToLight / Distance;
     float3 Radiance = Info.ColorIntensity.rgb * max(Info.ColorIntensity.a, 0.0f) * Fade;
     AddLight(Result, N, V, L, Radiance, bIncludeSpecular);
 }
@@ -261,7 +266,7 @@ VS_OUT Uber_VS(VS_IN Input)
     float Handedness = Input.Tangent.w * (determinant((float3x3)World) < 0.0f ? -1.0f : 1.0f);
     Output.WorldTangent = float4(T, Handedness);
 #if LIGHTING_MODEL_GOURAUD
-    FLightResult Lit = CalculateLighting(WorldPosition.xyz, N, false);
+    FLightResult Lit = CalculateLighting(WorldPosition.xyz, N, true);
     Output.VertexDiffuse = Lit.Diffuse;
     Output.VertexSpecular = Lit.Specular;
 #else

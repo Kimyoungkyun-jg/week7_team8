@@ -3,6 +3,8 @@
 #include "GameFramework/Actor/LightActor.h"
 #include "Component/DirectionalLightComponent.h"
 
+class UStaticMeshComponent;
+
 class ADirectionalLight : public ALightActor
 {
 	DECLARE_CLASS(ADirectionalLight, ALightActor)
@@ -12,8 +14,12 @@ class ADirectionalLight : public ALightActor
 public:
 	ADirectionalLight();
 	UDirectionalLightComponent* GetDirectionalLightComponent() const { return DirectionalLightComponent; }
+	UStaticMeshComponent* GetDirectionArrowComponent() const { return DirectionArrowComponent; }
 	USceneComponent* GetLightComponent() const override { return DirectionalLightComponent; }
 
 private:
+	void UpdateDirectionArrow();
+
 	UDirectionalLightComponent* DirectionalLightComponent = nullptr;
+	UStaticMeshComponent* DirectionArrowComponent = nullptr;
 };
