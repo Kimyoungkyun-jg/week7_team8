@@ -24,6 +24,7 @@ enum class EPSOType : uint8
 	StaticMesh_Forward,
 	StaticMesh_WorldNormal,
 	StaticMesh_DepthOnly,
+	LightCullingDebug,
 	Count
 };
 

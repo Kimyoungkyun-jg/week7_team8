@@ -272,7 +272,7 @@ void FViewportsPanel::OnRender() {
 		ImGui::SameLine();
 		// 장면 채우기 모드 설정
 		int Mode = static_cast<int>(Client->GetViewportMode());
-		const char *Labels[] = {"Solid", "Wireframe", "Scene Depth", "World Normal"};
+		const char *Labels[] = {"Solid", "Wireframe", "Scene Depth", "World Normal", "Light Culling"};
 		ImGui::SetNextItemWidth(120.0f);
 		if (ImGui::Combo("##FillMode", &Mode, Labels, IM_ARRAYSIZE(Labels))) {
 			Client->SetViewportMode(static_cast<EViewportMode>(Mode));
@@ -290,7 +290,7 @@ void FViewportsPanel::OnRender() {
 			RequestedSingleViewIndex = ViewIndex;
 			bHasLayoutRequest = true;
 		}
-		if (ViewIndex == ActiveViewIndex &&
+		if (ViewIndex == ActiveViewIndex && !Client->IsLightCulling() &&
 				FStatOverlay::IsAnyEnabled() &&
 				(FStatOverlay::IsEnabled(EStatFlags::Profile) ||
 				 FStatRegistry::Find(EditorStats::STAT_PickingTime))) {
@@ -311,7 +311,7 @@ void FViewportsPanel::OnRender() {
 		if (ViewIndex != ActiveViewIndex)
 			continue;
 		FEditorViewportClient *Client = ViewportClients[ViewIndex].get();
-		if (!Client || !Client->IsActive())
+		if (!Client || !Client->IsActive() || Client->IsLightCulling())
 			continue;
 		DrawStatOverlay(DrawList, {ContentOrigin.x + Client->GetRect().X,
 			ContentOrigin.y + Client->GetRect().Y});

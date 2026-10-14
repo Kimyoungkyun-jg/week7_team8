@@ -964,6 +964,7 @@ void UEditorEngine::RenderFrame(FEditorViewportClient *ViewClient,
 	Options.bEnableTiledLightCulling = SettingsPanel->GetSettings().bEnableTiledLightCulling;
 	Options.bShowSceneDepth = !bIsPIE && ViewClient->IsSceneDepth();
 	Options.bShowWorldNormal = !bIsPIE && ViewClient->IsWorldNormal();
+	Options.bShowLightCulling = !bIsPIE && ViewClient->IsLightCulling();
 	Options.SceneDepthRange = ViewClient->GetMaxRange();
 
 	FSceneViewTargets& Targets = ViewClient->GetViewTargets();

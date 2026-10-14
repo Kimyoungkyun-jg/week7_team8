@@ -457,7 +457,15 @@ bool FSceneRenderer::AddViewportPasses(FRenderGraphBuilder& Graph, FRenderer* Re
 	FSceneViewTargets& Targets, const FSceneRenderOptions& Options, FSkyboxRenderer* Skybox,
 	const FScenePassCallbacks& Callbacks)
 {
-	if (!AddCorePasses(Graph, Renderer, Targets, Options, Skybox)) // 기본적으로 그려져야 되는 Core Pass 들
+	FSceneRenderOptions CoreOptions = Options;
+	if (Options.bShowLightCulling)
+	{
+		// 디버그 보기에서 현재 뷰의 실제 타일 목록을 생성한다.
+		CoreOptions.RenderingPath = ERenderingPath::Forward;
+		CoreOptions.LightingModel = ELightingModel::Lambert;
+		CoreOptions.bEnableTiledLightCulling = true;
+	}
+	if (!AddCorePasses(Graph, Renderer, Targets, CoreOptions, Skybox)) // 기본적으로 그려져야 되는 Core Pass 들
 		return false;
 	
 	const FRenderGraphTextureRef SceneColor = Graph.ImportTexture(Targets.SceneColor.get(), "SceneColor");
@@ -510,6 +518,32 @@ bool FSceneRenderer::AddViewportPasses(FRenderGraphBuilder& Graph, FRenderer* Re
 		if (!Graph.AddRasterPass(std::move(Pass), [this, ApplyFXAA = Callbacks.FXAA]
 			{
 			bFXAAPassSucceeded = ApplyFXAA();
+			})) return false;
+	}
+
+	if (Options.bShowLightCulling && Options.bDrawPrimitives)
+	{
+		FRenderGraphRasterPassDesc Debug = MakeViewportPass("LightCullingDebug", FinalColor);
+		Debug.ReadTextures = { Depth };
+		if (!Graph.AddRasterPass(std::move(Debug), [this, Renderer, &Graph, Depth]
+			{
+				if (!bCorePassSucceeded || !bTilesBuilt) return;
+				FPipelineState* Pipeline = FRenderResourceManager::GetPSO(EPSOType::LightCullingDebug);
+				if (!Pipeline || !Pipeline->Shader || !Pipeline->Shader->VertexShader || !Pipeline->Shader->PixelShader)
+				{
+					bCorePassSucceeded = false;
+					return;
+				}
+				FForwardLightTileGrid& Tiles = RenderData.ViewLightResources.GetTiles();
+				Tiles.PreparePixelShader(Renderer, true);
+				Renderer->BindPixelConstant(3, Tiles.GetPixelConstants());
+				const std::array<ID3D11ShaderResourceView*, 3> TileResources = Tiles.GetPixelResources();
+				Renderer->BindRawPixelResources(9, std::span<ID3D11ShaderResourceView* const>(TileResources.data(), 1));
+				const std::array<FTexture2D*, 1> Textures = { Graph.Resolve(Depth) };
+				Renderer->DrawFullscreen(*Pipeline, Textures);
+				Renderer->UnbindResources(9, 1, EShaderBindFlagBits::Pixel);
+				Renderer->BindPixelConstant(3, nullptr);
+				Tiles.ResetPixelState();
 			})) return false;
 	}
 

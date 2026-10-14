@@ -11,6 +11,7 @@ struct FSceneRenderOptions
 	bool bEnableTiledLightCulling = true;
 	bool bShowSceneDepth = false;
 	bool bShowWorldNormal = false;
+	bool bShowLightCulling = false;
 	float SceneDepthRange = 1.0f;
 
 	ERenderingPath RenderingPath = ERenderingPath::Deferred;

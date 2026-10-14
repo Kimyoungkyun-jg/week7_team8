@@ -21,6 +21,7 @@ enum class EViewportMode : uint8
 	Wireframe,
 	SceneDepth,
 	WorldNormal,
+	LightCulling,
 	None
 };
 
