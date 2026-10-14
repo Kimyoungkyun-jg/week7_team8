@@ -158,7 +158,10 @@ bool FJsonArchive::LoadWorld(UWorld* World, const FString& Path)
 	if (!Json.contains("Version") || Json["Version"] != 2)
 		return false;
 
-	// 1. 모든 액터의 기본 정보를 먼저 검사
+	if (!Json.contains("Actors") || !Json["Actors"].is_array())
+		return false;
+
+	// 기본 정보 검사
 	for (const json& ActorJson : Json["Actors"])
 	{
 		if (!ActorJson.is_object())
@@ -172,11 +175,11 @@ bool FJsonArchive::LoadWorld(UWorld* World, const FString& Path)
 			FindClass(ActorJson["Class"].get<FString>());
 
 		if (!Class || !Class->IsChildOf(AActor::StaticClass()))
+		{
+			HTR_LOG(Warning, "LoadWorld: Class '{}' not found", ActorJson["Class"].get<FString>());
 			return false;
+		}
 	}
-
-	if (!Json.contains("Actors") || !Json["Actors"].is_array())
-		return false;
 
 	World->ClearWorld();
 

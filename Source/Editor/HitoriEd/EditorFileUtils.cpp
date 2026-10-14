@@ -112,13 +112,13 @@ FString FEditorFileUtils::OpenSaveSceneDialog()
 
 	OPENFILENAMEA ofn = {};
 	ofn.lStructSize = sizeof(OPENFILENAMEA);
-	ofn.hwndOwner = nullptr;
+	ofn.hwndOwner = GetActiveWindow();
 	ofn.lpstrFile = FilePath;
 	ofn.nMaxFile = MAX_PATH;
 
 	ofn.lpstrFilter = "Scene Files (*.scene)\0*.scene\0";
 	ofn.lpstrDefExt = "scene";
-	ofn.lpstrInitialDir = "Scene/";
+	ofn.lpstrInitialDir = "Scenes";
 
 	ofn.Flags =
 		OFN_PATHMUSTEXIST |
@@ -139,7 +139,7 @@ FString FEditorFileUtils::OpenLoadSceneDialog()
 
 	OPENFILENAMEA ofn = {};
 	ofn.lStructSize = sizeof(OPENFILENAMEA);
-	ofn.hwndOwner = nullptr;
+	ofn.hwndOwner = GetActiveWindow();
 
 	ofn.lpstrFile = FilePath;
 	ofn.nMaxFile = MAX_PATH;
@@ -149,7 +149,7 @@ FString FEditorFileUtils::OpenLoadSceneDialog()
 		"All Files (*.*)\0*.*\0";
 
 	ofn.lpstrDefExt = "scene";
-	ofn.lpstrInitialDir = "Scene/";
+	ofn.lpstrInitialDir = "Scenes";
 
 	ofn.Flags =
 		OFN_FILEMUSTEXIST |
