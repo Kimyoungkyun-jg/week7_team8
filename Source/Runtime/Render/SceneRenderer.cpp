@@ -347,51 +347,64 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 			if (!Processor.Build(View, RenderData.RenderQueue, &RenderData,
 				EMeshPassType::Forward, ForwardBatches, Options.LightingModel)) return false;
 		}
-		bool bUseDepthPrepass = false;
-		if (Options.bDrawPrimitives && bLightUploadSucceeded && !View.bIsWireframe &&
-			Options.bEnableTiledLightCulling && Options.LightingModel != ELightingModel::Gouraud &&
-			(LightCounts[0] || LightCounts[1]))
-		{
-			FForwardLightingConstants TileLighting{};
-			std::memcpy(TileLighting.LightCounts, LightCounts, sizeof(LightCounts));
-			std::memcpy(TileLighting.LightOffsets, LightOffsets, sizeof(LightOffsets));
-			FForwardLightTileGrid& Tiles = RenderData.ViewLightResources.GetTiles();
-			FStructuredBuffer* SceneLights = RenderData.ViewLightResources.GetSceneLights();
-			if (Tiles.PrepareBuild(View, TileLighting, SceneLights, Targets.Depth.get()))
-			{
-				FPipelineState* DepthPipeline = FRenderResourceManager::GetPSO(EPSOType::StaticMesh_DepthOnly);
-				if (!DepthPipeline || !DepthPipeline->Shader || !DepthPipeline->Shader->PixelShader) return false;
-				bUseDepthPrepass = true;
-				FRenderGraphRasterPassDesc Prepass{};
-				Prepass.Name = "DepthPrepass";
-				Prepass.DepthAttachment = { Depth, ERenderGraphLoadAction::Clear, 1.0f, 0 };
-				if (!Graph.AddRasterPass(std::move(Prepass), [this, Renderer, DepthPipeline]
-					{
-						PrepareDrawData(Renderer, RenderData);
-						if (ForwardBatches.empty()) return;
-						// 같은 VS와 오브젝트 데이터를 사용해 두 패스의 깊이 계산을 일치시킨다.
-						FShaderProgram DepthProgram(ForwardBatches.front().Pipeline.Shader->VertexShader,
-							DepthPipeline->Shader->PixelShader);
-						std::vector<FMeshDrawBatch> DepthBatches = ForwardBatches;
-						for (FMeshDrawBatch& Batch : DepthBatches)
-						{
-							Batch.Pipeline = *DepthPipeline;
-							Batch.Pipeline.Shader = &DepthProgram;
-						}
-						Renderer->DrawMeshes(DepthBatches);
-					})) return false;
+		// 현재 업로드된 광원 정보를 기존 그리드에 전달한다.
+		FForwardLightTileGrid& Tiles = RenderData.ViewLightResources.GetTiles();
+		FStructuredBuffer* SceneLights = RenderData.ViewLightResources.GetSceneLights();
+		FForwardLightingConstants GridLighting{};
+		std::memcpy(GridLighting.LightCounts, LightCounts, sizeof(LightCounts));
+		std::memcpy(GridLighting.LightOffsets, LightOffsets, sizeof(LightOffsets));
 
-				FRenderGraphComputePassDesc Culling{};
-				Culling.Name = "TileLightCulling";
-				Culling.ReadResources = { Targets.Depth->GetRawPtr(), SceneLights->GetBuffer() };
-				const std::array<ID3D11Resource*, 4> Writes = Tiles.GetWriteResources();
-				Culling.WriteResources.assign(Writes.begin(), Writes.end());
-				if (!Graph.AddComputePass(std::move(Culling), [this, Renderer, SceneLights, DepthTexture = Targets.Depth.get()]
+		// 픽셀 조명 경로에서만 목록을 사용한다.
+		const ELightCullingMode CullingMode = !View.bIsWireframe &&	Options.LightingModel != ELightingModel::Gouraud ? Options.LightCullingMode : ELightCullingMode::Off;
+
+		// Off도 이번 프레임의 화면 정보와 입력 광원 개수를 갱신한다.
+		bool bUseDepthPrepass = false;
+		const bool bGridPrepared = Options.bDrawPrimitives && bLightUploadSucceeded &&
+			Tiles.PrepareBuild(View, GridLighting, SceneLights, Targets.Depth.get(), CullingMode);
+
+		if (bGridPrepared && CullingMode != ELightCullingMode::Off && (LightCounts[0] || LightCounts[1]))
+		{
+			FPipelineState* DepthPipeline = FRenderResourceManager::GetPSO(EPSOType::StaticMesh_DepthOnly);
+			if (!DepthPipeline || !DepthPipeline->Shader || !DepthPipeline->Shader->PixelShader) return false;
+			bUseDepthPrepass = true;
+
+			// 기존 프리패스를 유지해 ForwardOpaque에서 깊이를 재사용한다.
+			FRenderGraphRasterPassDesc Prepass{};
+			Prepass.Name = "DepthPrepass";
+			Prepass.DepthAttachment = { Depth, ERenderGraphLoadAction::Clear, 1.0f, 0 };
+			if (!Graph.AddRasterPass(std::move(Prepass), [this, Renderer, DepthPipeline]
+				{
+					PrepareDrawData(Renderer, RenderData);
+					if (ForwardBatches.empty()) return;
+
+					// 실제 메시 패스와 같은 VS를 사용해 깊이 계산을 일치시킨다.
+					FShaderProgram DepthProgram(ForwardBatches.front().Pipeline.Shader->VertexShader, DepthPipeline->Shader->PixelShader);
+					std::vector<FMeshDrawBatch> DepthBatches = ForwardBatches;
+					for (FMeshDrawBatch& Batch : DepthBatches)
 					{
-						if (bCorePassSucceeded)
-							bTilesBuilt = RenderData.ViewLightResources.GetTiles().ExecuteBuild(Renderer, DepthTexture, SceneLights);
-					})) return false;
-			}
+						Batch.Pipeline = *DepthPipeline;
+						Batch.Pipeline.Shader = &DepthProgram;
+					}
+					Renderer->DrawMeshes(DepthBatches);
+				})) return false;
+
+			// 선택한 알고리즘에 맞는 컴퓨트 패스를 등록한다.
+			FRenderGraphComputePassDesc Culling{};
+			Culling.Name = CullingMode == ELightCullingMode::Clustered
+				? "ClusterLightCulling" : "TileLightCulling";
+			Culling.ReadResources = { SceneLights->GetBuffer() };
+			if (CullingMode == ELightCullingMode::Tiled)
+				Culling.ReadResources.push_back(Targets.Depth->GetRawPtr());
+
+			const std::array<ID3D11Resource*, 4> Writes = Tiles.GetWriteResources();
+			Culling.WriteResources.assign(Writes.begin(), Writes.end());
+			if (!Graph.AddComputePass(std::move(Culling),
+				[this, Renderer, SceneLights, DepthTexture = Targets.Depth.get()]
+				{
+					if (bCorePassSucceeded)
+						bTilesBuilt = RenderData.ViewLightResources.GetTiles().ExecuteBuild(Renderer, DepthTexture, SceneLights);
+				})) 
+				return false;
 		}
 		FRenderGraphRasterPassDesc Forward{};
 		Forward.Name = "ForwardOpaque";
@@ -457,7 +470,6 @@ bool FSceneRenderer::AddViewportPasses(FRenderGraphBuilder& Graph, FRenderer* Re
 		// 디버그 보기에서 현재 뷰의 실제 타일 목록을 생성한다.
 		CoreOptions.RenderingPath = ERenderingPath::Forward;
 		CoreOptions.LightingModel = ELightingModel::Lambert;
-		CoreOptions.bEnableTiledLightCulling = true;
 	}
 	if (!AddCorePasses(Graph, Renderer, Targets, CoreOptions, Skybox)) // 기본적으로 그려져야 되는 Core Pass 들
 		return false;
@@ -515,13 +527,13 @@ bool FSceneRenderer::AddViewportPasses(FRenderGraphBuilder& Graph, FRenderer* Re
 			})) return false;
 	}
 
-	if (Options.bShowLightCulling && Options.bDrawPrimitives)
+	if (Options.bShowLightCulling && Options.bDrawPrimitives && !Options.bShowWorldNormal)
 	{
 		FRenderGraphRasterPassDesc Debug = MakeViewportPass("LightCullingDebug", FinalColor);
 		Debug.ReadTextures = { Depth };
 		if (!Graph.AddRasterPass(std::move(Debug), [this, Renderer, &Graph, Depth]
 			{
-				if (!bCorePassSucceeded || !bTilesBuilt) return;
+				if (!bCorePassSucceeded) return;
 				FPipelineState* Pipeline = FRenderResourceManager::GetPSO(EPSOType::LightCullingDebug);
 				if (!Pipeline || !Pipeline->Shader || !Pipeline->Shader->VertexShader || !Pipeline->Shader->PixelShader)
 				{
@@ -529,7 +541,7 @@ bool FSceneRenderer::AddViewportPasses(FRenderGraphBuilder& Graph, FRenderer* Re
 					return;
 				}
 				FForwardLightTileGrid& Tiles = RenderData.ViewLightResources.GetTiles();
-				Tiles.PreparePixelShader(Renderer, true);
+				Tiles.PreparePixelShader(Renderer, bTilesBuilt);
 				Renderer->BindPixelConstant(3, Tiles.GetPixelConstants());
 				const std::array<ID3D11ShaderResourceView*, 3> TileResources = Tiles.GetPixelResources();
 				Renderer->BindRawPixelResources(9, std::span<ID3D11ShaderResourceView* const>(TileResources.data(), 1));

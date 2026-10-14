@@ -703,7 +703,7 @@ void UEditorEngine::RenderGameFrame(FGameViewportClient* GameClient, const FScen
 	{
 		Options.RenderingPath = SettingsPanel->GetSettings().RenderingPath;
 		Options.LightingModel = SettingsPanel->GetSettings().LightingModel;
-		Options.bEnableTiledLightCulling = SettingsPanel->GetSettings().bEnableTiledLightCulling;
+		Options.LightCullingMode = SettingsPanel->GetSettings().LightCullingMode;
 	}
 	FSceneViewTargets& Targets = GameClient->GetViewTargets();
 	const bool bRendered = RenderScene(Targets, SceneView, SceneRenderer, GameClient->GetWorld(), Options,
@@ -960,7 +960,7 @@ void UEditorEngine::RenderFrame(FEditorViewportClient *ViewClient,
 	Options.bEnableFXAA = SettingsPanel->GetSettings().bEnableFXAA;
 	Options.RenderingPath = SettingsPanel->GetSettings().RenderingPath; // Deferred 로 할지 아님 Forward로 할지
 	Options.LightingModel = SettingsPanel->GetSettings().LightingModel; // Forward에서 goraud, lambert, phong 선택
-	Options.bEnableTiledLightCulling = SettingsPanel->GetSettings().bEnableTiledLightCulling;
+	Options.LightCullingMode = SettingsPanel->GetSettings().LightCullingMode;
 	Options.bShowSceneDepth = !bIsPIE && ViewClient->IsSceneDepth();
 	Options.bShowWorldNormal = !bIsPIE && ViewClient->IsWorldNormal();
 	Options.bShowLightCulling = !bIsPIE && ViewClient->IsLightCulling();

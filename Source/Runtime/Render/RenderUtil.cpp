@@ -84,7 +84,11 @@ bool RenderUtil::IsCsoUpToDate(const FString& ShaderPath, const FString& CsoPath
 		const auto IncludeTime = fs::last_write_time("Resources/Shader/LightEvaluation.hlsli", Ec);
 		if (Ec || IncludeTime >= CsoTime) return false;
 	}
-
+	if (ShaderFile == "UberLit.hlsl" || ShaderFile == "LightCullingDebug.hlsl")
+	{
+		const auto GridIncludeTime = fs::last_write_time("Resources/Shader/LightGridCommon.hlsli", Ec);
+		if (Ec || GridIncludeTime >= CsoTime) return false;
+	}
 	return CsoTime > SrcTime;
 }
 

@@ -8,7 +8,7 @@ struct FSceneRenderOptions
 	bool bDrawPrimitives = true;
 	bool bEnableFog = true;
 	bool bEnableFXAA = false;
-	bool bEnableTiledLightCulling = true;
+	ELightCullingMode LightCullingMode = ELightCullingMode::Tiled;
 	bool bShowSceneDepth = false;
 	bool bShowWorldNormal = false;
 	bool bShowLightCulling = false;
