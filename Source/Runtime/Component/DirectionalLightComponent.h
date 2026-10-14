@@ -27,6 +27,7 @@ public:
 	TMulticastDelegate<> OnDirectionChanged;
 
 protected:
+	const char* GetEditorIconPath() const override { return "Editor/Icon/DirectionalLight_64x.png"; }
 	bool ShouldCreateRenderState() const override { return true; }
 	void CreateRenderState() override;
 	void DestroyRenderState() override;

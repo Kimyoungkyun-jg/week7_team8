@@ -1137,14 +1137,13 @@ void UEditorEngine::RenderActorUUIDs(const FSceneView &SceneView) {
 	for (AActor *Actor : TargetWorld->GetPersistentLevel()->GetActors()) {
 		if (!Actor)
 			continue;
-		UPrimitiveComponent *Primitive =
-				Cast<UPrimitiveComponent>(Actor->GetRootComponent());
+		USceneComponent* Root = Actor->GetRootComponent();
 
-		if (!Primitive)
+		if (!Root)
 			continue;
 
 		// 액터 머리 위 위치 계산
-		FBox Box = Primitive->CalcBounds();
+		FBox Box = Root->CalcBounds();
 		FVector UUIDLocation((Box.Min.X + Box.Max.X) * 0.5f,
 			(Box.Min.Y + Box.Max.Y) * 0.5f, Box.Max.Z + 0.5f);
 

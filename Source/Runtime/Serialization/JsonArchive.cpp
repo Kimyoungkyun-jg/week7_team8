@@ -9,6 +9,7 @@
 #include "UObject/UObjectHash.h"
 #include "GameFramework/Actor/StaticMeshActor.h"
 #include "GameFramework/Actor/SpotLight.h"
+#include "GameFramework/Actor/LightActor.h"
 #include "TypeSerializer.h"
 #include "Asset/AssetManager.h"
 #include "Camera/CameraActor.h"
@@ -219,6 +220,14 @@ bool FJsonArchive::LoadWorld(UWorld* World, const FString& Path)
 		for (json& ComponentJson : ActorJson["Components"])       // json → json&
 		{
 			const FName Name(ComponentJson["Name"].get<FString>());
+
+			// 구형 광원은 Billboard 루트에 액터 Transform을 저장했다.
+			if (Actor->IsA<ALightActor>() && Name.GetPlainNameString() == "UBillboardComponent" &&
+				ComponentJson.value("Class", FString{}) == "UBillboardComponent")
+			{
+				Actor->GetRootComponent()->Serialize(ComponentJson["Properties"], true);
+				continue;
+			}
 
 			// 이름으로 컴포넌트 찾기
 			UActorComponent* Component = nullptr;

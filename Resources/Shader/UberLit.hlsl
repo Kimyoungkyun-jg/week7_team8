@@ -216,7 +216,7 @@ FLightResult CalculateLighting(float3 P, float3 Normal, bool bIncludeSpecular)
     return Result;
 }
 
-// 타일 목록의 인덱스는 kim의 공유 SceneLights 안에서 종류별 시작 위치에 더한다.
+// 타일 목록의 인덱스는 SceneLights 안에서 종류별 시작 위치에 더한다.
 FLightResult CalculateTiledLighting(float2 PixelPosition, float3 P,
     float3 Normal, bool bIncludeSpecular)
 {
