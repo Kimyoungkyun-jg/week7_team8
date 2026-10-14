@@ -17,6 +17,7 @@ struct FStaticMaterialSlot
 	FString Name;
 	FVector4 BaseColor = FVector4(1, 1, 1, 1);
 	FString DiffuseTexturePath;
+	FString NormalTexturePath;
 };
 
 struct FLODSourceVertex

@@ -86,6 +86,16 @@ namespace
 					Material->Textures[0] = Texture;
 				}
 			}
+			if (Material->Textures.Num() < 2)
+				Material->Textures.SetNum(2);
+			Material->Textures[1] = UAssetManager::GetAssetByPath<UTexture2D>("FlatNormalTexture");
+			if (!Slot.NormalTexturePath.empty())
+			{
+				if (UTexture2D* NormalTexture = UAssetManager::Get().LoadTexture(Slot.NormalTexturePath))
+					Material->Textures[1] = NormalTexture;
+				else
+					HTR_LOG(Warning, "[Material] '{}': normal texture load failed '{}'", Slot.Name, Slot.NormalTexturePath);
+			}
 			Mesh->Materials.Add(Material);
 		}
 
@@ -206,6 +216,16 @@ void UAssetManager::CreateDefaultTextures()
 	WhiteTexture->SetPath("WhiteTexture");
 
 	AssetMap["WhiteTexture"] = WhiteTexture;
+
+	const uint8 FlatNormalPixel[4] = { 128, 128, 255, 255 };
+	TUniquePtr<FTexture2D> NormalResource = RenderCommand::CreateTexture2D(Desc, FlatNormalPixel);
+	if (!NormalResource)
+		return;
+
+	UTexture2D* FlatNormalTexture = FObjectFactory::ConstructObject<UTexture2D>();
+	FlatNormalTexture->SetResource(std::move(NormalResource));
+	FlatNormalTexture->SetPath("FlatNormalTexture");
+	AssetMap["FlatNormalTexture"] = FlatNormalTexture;
 }
 
 void UAssetManager::CreateDefaultMeshes()
@@ -284,6 +304,7 @@ void UAssetManager::CreateDefaultMaterial()
 	UMaterial* DefaultMat = FObjectFactory::ConstructObject<UMaterial>();
 	DefaultMat->PSOType = EPSOType::StaticMesh_Opaque;
 	DefaultMat->Textures.Add(GetAssetByPath<UTexture2D>("WhiteTexture"));
+	DefaultMat->Textures.Add(GetAssetByPath<UTexture2D>("FlatNormalTexture"));
 
 	DefaultMat->ParamBuffer = RenderCommand::CreateConstantBuffer(sizeof(FStaticMeshMaterialParams));
 	RegisterAsset("DefaultMaterial", DefaultMat);
@@ -424,6 +445,7 @@ bool UAssetManager::ReorientStaticMesh(UStaticMesh& Mesh, const std::function<FV
 	{
 		Vertex.Position = Rotate(Vertex.Position);
 		Vertex.Normal = Rotate(Vertex.Normal);
+		Vertex.Tangent = FVector4(Rotate(FVector(Vertex.Tangent.X, Vertex.Tangent.Y, Vertex.Tangent.Z)), Vertex.Tangent.W);
 		Bounds.Min = FVector(std::min(Bounds.Min.X, Vertex.Position.X), std::min(Bounds.Min.Y, Vertex.Position.Y), std::min(Bounds.Min.Z, Vertex.Position.Z));
 		Bounds.Max = FVector(std::max(Bounds.Max.X, Vertex.Position.X), std::max(Bounds.Max.Y, Vertex.Position.Y), std::max(Bounds.Max.Z, Vertex.Position.Z));
 	}

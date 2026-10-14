@@ -12,6 +12,8 @@ class FObjImporter
 public:
 	static TUniquePtr<FStaticMeshData> LoadStaticMeshData(const FString& Path);
 
+	static void CalcualteTangents(FStaticMeshData& Cooked);
+
 	// 디버그용 출력
 	static void PrintObjInfo(const FObjInfo& ObjInfo);
 	static void PrintSMD(const FStaticMeshData& SMD);

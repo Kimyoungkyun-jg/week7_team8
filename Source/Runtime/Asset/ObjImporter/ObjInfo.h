@@ -49,6 +49,7 @@ struct FObjMaterialInfo
 	FString Name;
 	FVector Kd = FVector(1.0f, 1.0f, 1.0f);
 	FString MapKd; // 저장소 루트 기준
+	FString MapNormal;
 	float D = 1.0f;
 };
 

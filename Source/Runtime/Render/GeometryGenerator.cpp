@@ -1,5 +1,6 @@
 #include "EnginePCH.h"
 #include "GeometryGenerator.h"
+#include "Asset/ObjImporter/ObjImporter.h"
 
 namespace
 {
@@ -102,6 +103,7 @@ TUniquePtr<FStaticMeshData> FGeometryGenerator::CreatePlane(float Size, const FV
 	PlaneMeshData->Indices.Add(2);
 
 	CalculateNormals(PlaneMeshData->Vertices, PlaneMeshData->Indices);
+	FObjImporter::CalcualteTangents(*PlaneMeshData);
 	PlaneMeshData->AABB = CalculateAABB(PlaneMeshData->Vertices);
 
 	return PlaneMeshData;
@@ -163,6 +165,7 @@ TUniquePtr<FStaticMeshData> FGeometryGenerator::CreateCone(float Radius, float H
 	}
 
 	CalculateNormals(ConeMeshData->Vertices, ConeMeshData->Indices);
+	FObjImporter::CalcualteTangents(*ConeMeshData);
 	ConeMeshData->AABB = CalculateAABB(ConeMeshData->Vertices);
 
 	return ConeMeshData;
@@ -247,6 +250,7 @@ TUniquePtr<FStaticMeshData> FGeometryGenerator::CreateCylinder(float Radius, flo
 	}
 
 	CalculateNormals(CylinderMeshData->Vertices, CylinderMeshData->Indices);
+	FObjImporter::CalcualteTangents(*CylinderMeshData);
 	CylinderMeshData->AABB = CalculateAABB(CylinderMeshData->Vertices);
 
 	return CylinderMeshData;
@@ -263,6 +267,7 @@ TUniquePtr<FStaticMeshData> FGeometryGenerator::CreateArrow(float BodyRadius, fl
 	Arrow->Append(*Head);
 
 	CalculateNormals(Arrow->Vertices, Arrow->Indices);
+	FObjImporter::CalcualteTangents(*Arrow);
 	Arrow->AABB = CalculateAABB(Arrow->Vertices);
 
 	return Arrow;
@@ -279,6 +284,7 @@ TUniquePtr<FStaticMeshData> FGeometryGenerator::CreateScaleBar(float BodyRadius,
 	Arrow->Append(*Head);
 
 	CalculateNormals(Arrow->Vertices, Arrow->Indices);
+	FObjImporter::CalcualteTangents(*Arrow);
 	Arrow->AABB = CalculateAABB(Arrow->Vertices);
 
 	return Arrow;
@@ -331,6 +337,7 @@ TUniquePtr<FStaticMeshData> FGeometryGenerator::CreateRing(float Radius, float T
 		}
 	}
 	CalculateNormals(Data->Vertices, Data->Indices);
+	FObjImporter::CalcualteTangents(*Data);
 	Data->AABB = CalculateAABB(Data->Vertices);
 
 	return Data;
@@ -409,6 +416,7 @@ TUniquePtr<FStaticMeshData> FGeometryGenerator::CreateCube(float Size, const FVe
 	}
 
 	CalculateNormals(CubeMeshData->Vertices, CubeMeshData->Indices);
+	FObjImporter::CalcualteTangents(*CubeMeshData);
 	CubeMeshData->AABB = CalculateAABB(CubeMeshData->Vertices);
 
 	return CubeMeshData;
@@ -461,6 +469,7 @@ TUniquePtr<FStaticMeshData> FGeometryGenerator::CreateSphere(float Radius, uint3
 	}
 
 	CalculateNormals(SphereMeshData->Vertices, SphereMeshData->Indices);
+	FObjImporter::CalcualteTangents(*SphereMeshData);
 	SphereMeshData->AABB = CalculateAABB(SphereMeshData->Vertices);
 
 	return SphereMeshData;

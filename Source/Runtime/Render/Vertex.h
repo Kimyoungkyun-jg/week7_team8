@@ -29,4 +29,8 @@ struct FVertexPNCT
 	FVector Normal = FVector();
 	FVector4 Color = FVector4();
 	FVector2 UV = FVector2();
+
+	// xyz: 로컬 tangent, w: bitangent 방향 부호(+1 / -1)
+	FVector4 Tangent = FVector4(1, 0, 0, 1);
+
 };

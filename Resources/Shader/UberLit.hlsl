@@ -65,6 +65,7 @@ cbuffer Lighting : register(b4)
 };
 
 Texture2D ColorTexture : register(t0);
+Texture2D NormalTexture : register(t1);
 SamplerState ColorSampler : register(s0);
 
 float3 SafeNormalize(float3 X)
@@ -212,6 +213,7 @@ struct VS_IN
     float3 Normal : NORMAL;
     float4 Color : COLOR;
     float2 UV : TEXCOORD0;
+    float4 Tangent : TANGENT;
 };
 
 struct VS_OUT
@@ -226,6 +228,8 @@ struct VS_OUT
 #elif LIGHTING_MODEL_LAMBERT || LIGHTING_MODEL_PHONG
     float3 WorldPosition : TEXCOORD1;
     float3 WorldNormal : TEXCOORD2;
+    float3 WorldTangent : TEXCOORD3;
+    nointerpolation float TangentSign : TEXCOORD4;
 #endif
 };
 
@@ -247,10 +251,38 @@ VS_OUT Uber_VS(VS_IN Input)
 #elif LIGHTING_MODEL_LAMBERT || LIGHTING_MODEL_PHONG
     Output.WorldPosition = P.xyz;
     Output.WorldNormal = N;
+    Output.WorldTangent = mul(float4(Input.Tangent.xyz, 0.0f), World).xyz;
+    float WorldSign = determinant((float3x3)World) < 0.0f ? -1.0f : 1.0f;
+    Output.TangentSign = Input.Tangent.w * WorldSign;
 #endif
 
     return Output;
 }
+
+#if LIGHTING_MODEL_LAMBERT || LIGHTING_MODEL_PHONG
+float3 CalculateMappedWorldNormal(VS_OUT Input)
+{
+    float3 N = Input.WorldNormal;
+    if (dot(N, N) < 1.0e-8f)
+        N = float3(0.0f, 0.0f, 1.0f);
+    N = SafeNormalize(N);
+
+    // 보간 후 Gram-Schmidt로 N 방향 성분을 제거한다.
+    float3 T = Input.WorldTangent - N * dot(N, Input.WorldTangent);
+    if (dot(T, T) < 1.0e-8f)
+    {
+        float3 Axis = abs(N.z) < 0.999f ? float3(0, 0, 1) : float3(0, 1, 0);
+        T = cross(Axis, N);
+    }
+    T = SafeNormalize(T);
+    float3 B = cross(N, T) * Input.TangentSign;
+
+    // 노멀맵은 선형 데이터이므로 색 텍스처의 감마 변환을 적용하지 않는다.
+    float3 NormalTS = NormalTexture.Sample(ColorSampler, Input.UV).xyz * 2.0f - 1.0f;
+    float3x3 WorldTBN = float3x3(T, B, N);
+    return SafeNormalize(mul(NormalTS, WorldTBN));
+}
+#endif
 
 float4 Uber_PS(VS_OUT Input) : SV_TARGET
 {
@@ -269,7 +301,7 @@ float4 Uber_PS(VS_OUT Input) : SV_TARGET
     Diffuse = Input.VertexDiffuse;
     Specular = Input.VertexSpecular;
 #else
-    CalculateLighting(Input.WorldPosition,SafeNormalize(Input.WorldNormal), Diffuse, Specular);
+    CalculateLighting(Input.WorldPosition, CalculateMappedWorldNormal(Input), Diffuse, Specular);
 #endif
     float3 Color = Albedo * Diffuse + Specular;
 #endif

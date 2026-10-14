@@ -5,6 +5,7 @@
 #include <sstream>
 #include <charconv>
 #include <filesystem>
+#include <iomanip>
 
 #include "Core/EngineLog.h"
 #include "Render/StaticMeshData.h"
@@ -170,6 +171,17 @@ namespace
 				{
 					HTR_LOG(Warning, "[MTL] {}:{}: invalid map_Kd '{}'", Path, LineNumber, Line);
 					return false;
+				}
+			}
+			else if (Keyword == "norm" || Keyword == "map_Kn")
+			{
+				FString MapNormal;
+				// 명시적인 RGB 노멀맵 경로. 높이맵(bump)과 텍스처 옵션은 별도 취급한다.
+				if (!(Stream >> std::quoted(MapNormal)) || MapNormal.empty() ||
+					MapNormal.front() == '-' || !TransformPath(Path, MapNormal, MtlInfo.MapNormal))
+				{
+					HTR_LOG(Warning, "[MTL] {}:{}: invalid or unsupported normal map '{}'", Path, LineNumber, Line);
+					continue;
 				}
 			}
 			else if (Keyword == "d")
@@ -389,6 +401,7 @@ bool FObjImporter::Cook(const FObjInfo& Raw, FStaticMeshData& Out)
 		CookedMtl.Name = RawMtl.Name;
 		CookedMtl.BaseColor.Set(RawMtl.Kd, RawMtl.D);
 		CookedMtl.DiffuseTexturePath = RawMtl.MapKd;
+		CookedMtl.NormalTexturePath = RawMtl.MapNormal;
 		Cooked.MaterialSlots.Add(std::move(CookedMtl));
 	}
 
@@ -463,6 +476,8 @@ bool FObjImporter::Cook(const FObjInfo& Raw, FStaticMeshData& Out)
 		Cooked.Sections.Add(std::move(CookedSection));
 	}
 
+	CalcualteTangents(Cooked);
+
 	// AABB (변환이 끝난 Position 기준)
 	if (!Cooked.Vertices.IsEmpty())
 	{
@@ -492,6 +507,8 @@ bool FObjImporter::Cook(const FObjInfo& Raw, FStaticMeshData& Out)
 	return true;
 }
 
+
+
 TUniquePtr<FStaticMeshData> FObjImporter::LoadStaticMeshData(const FString& Path)
 {
 	const FString BinPath = Path + ".bin";
@@ -512,6 +529,130 @@ TUniquePtr<FStaticMeshData> FObjImporter::LoadStaticMeshData(const FString& Path
 
 	FStaticMeshBake::WriteBaked(BinPath, *Data);
 	return Data;
+}
+
+ void FObjImporter::CalcualteTangents(FStaticMeshData& Cooked)
+{
+	// 서로 다른 handedness를 공유하는 미러 UV 경계는 누적 전에 분리한다.
+	const int32 OriginalVertexCount = Cooked.Vertices.Num();
+	const bool bHasLODSource = Cooked.LODSourceVertices.Num() == OriginalVertexCount;
+	TArray<int32> VertexSigns;
+	VertexSigns.Init(0, OriginalVertexCount);
+	TArray<int32> OppositeVertices;
+	OppositeVertices.Init(-1, OriginalVertexCount);
+	for (int32 i = 0; i + 2 < Cooked.Indices.Num(); i += 3)
+	{
+		const FVertexPNCT V0 = Cooked.Vertices[Cooked.Indices[i]];
+		const FVertexPNCT V1 = Cooked.Vertices[Cooked.Indices[i + 1]];
+		const FVertexPNCT V2 = Cooked.Vertices[Cooked.Indices[i + 2]];
+		const FVector2 D1 = V1.UV - V0.UV;
+		const FVector2 D2 = V2.UV - V0.UV;
+		const float UVDelta = D1.X * D2.Y - D1.Y * D2.X;
+		if (std::abs(UVDelta) < 1.0e-8f)
+			continue;
+		const FVector T = ((V1.Position - V0.Position) * D2.Y - (V2.Position - V0.Position) * D1.Y) / UVDelta;
+		const FVector B = ((V2.Position - V0.Position) * D1.X - (V1.Position - V0.Position) * D2.X) / UVDelta;
+		for (int32 Corner = 0; Corner < 3; ++Corner)
+		{
+			const uint32 Index = Cooked.Indices[i + Corner];
+			const int32 Sign = FVector::Cross(Cooked.Vertices[Index].Normal, T).Dot(B) < 0.0f ? -1 : 1;
+			if (VertexSigns[Index] == 0)
+				VertexSigns[Index] = Sign;
+			else if (VertexSigns[Index] != Sign)
+			{
+				if (OppositeVertices[Index] < 0)
+				{
+					const FVertexPNCT Duplicate = Cooked.Vertices[Index];
+					OppositeVertices[Index] = static_cast<int32>(Cooked.Vertices.Add(Duplicate));
+					if (bHasLODSource)
+					{
+						const FLODSourceVertex Source = Cooked.LODSourceVertices[Index];
+						Cooked.LODSourceVertices.Add(Source);
+					}
+				}
+				Cooked.Indices[i + Corner] = static_cast<uint32>(OppositeVertices[Index]);
+			}
+		}
+	}
+
+	TArray<FVector> TangentSums;
+	TangentSums.Init(FVector(0.0f, 0.0f, 0.0f), Cooked.Vertices.Num());
+
+	TArray<FVector> BitangentSums;
+	BitangentSums.Init(FVector(0.0f, 0.0f, 0.0f), Cooked.Vertices.Num());
+
+	// 삼각형별 T, B 계산 및 누적
+	for (int32 i = 0; i + 2 < Cooked.Indices.Num(); i += 3)
+	{
+		const uint32 I0 = Cooked.Indices[i];
+		const uint32 I1 = Cooked.Indices[i + 1];
+		const uint32 I2 = Cooked.Indices[i + 2];
+
+		const FVertexPNCT& V0 = Cooked.Vertices[I0];
+		const FVertexPNCT& V1 = Cooked.Vertices[I1];
+		const FVertexPNCT& V2 = Cooked.Vertices[I2];
+
+		const FVector E1 = V1.Position - V0.Position;
+		const FVector E2 = V2.Position - V0.Position;
+
+		const FVector2 D1 = V1.UV - V0.UV;
+		const FVector2 D2 = V2.UV - V0.UV;
+
+		const float UVDelta = D1.X * D2.Y - D1.Y * D2.X;
+
+		if (std::abs(UVDelta) < 1.0e-8f)
+		{
+			continue;
+		}
+
+		const FVector T = (E1 * D2.Y - E2 * D1.Y) / UVDelta;
+		const FVector B = (E2 * D1.X - E1 * D2.X) / UVDelta;
+
+		TangentSums[I0] += T;
+		TangentSums[I1] += T;
+		TangentSums[I2] += T;
+
+		BitangentSums[I0] += B;
+		BitangentSums[I1] += B;
+		BitangentSums[I2] += B;
+	}
+
+	// 정점별 직교화 및 저장
+	for (int32 i = 0; i < Cooked.Vertices.Num(); ++i)
+	{
+		FVertexPNCT& Vertex = Cooked.Vertices[i];
+
+		FVector N = Vertex.Normal;
+		if (N.Dot(N) < 1.0e-8f)
+		{
+			N = FVector(0.0f, 0.0f, 1.0f);
+		}
+		N = N.Normalized();
+		Vertex.Normal = N;
+
+		// Gram–Schmidt: T에서 N 방향 성분 제거
+		FVector T = TangentSums[i];
+		T -= N * N.Dot(T);
+
+		// 유효한 tangent가 없으면 N에 수직인 방향 생성
+		if (T.Dot(T) < 1.0e-8f)
+		{
+			const FVector Axis = std::abs(N.Z) < 0.999f
+				? FVector(0.0f, 0.0f, 1.0f)
+				: FVector(0.0f, 1.0f, 0.0f);
+
+			T = FVector::Cross(Axis, N);
+		}
+
+		T = T.Normalized();
+
+		const float Sign = FVector::Cross(N, T).Dot(BitangentSums[i]) < 0.0f
+			? -1.0f
+			: 1.0f;
+
+		Vertex.Tangent = FVector4(T.X, T.Y, T.Z, Sign);
+	}
+
 }
 
 // 디버그용 출력

@@ -1,5 +1,6 @@
 #include "EnginePCH.h"
 #include "StaticMeshLODGenerator.h"
+#include "Asset/ObjImporter/ObjImporter.h"
 
 #include <algorithm>
 #include <cmath>
@@ -1140,6 +1141,8 @@ namespace
         {
             Out.Vertices[I].Normal = NormalSums[I].Normalized();
         }
+
+        FObjImporter::CalcualteTangents(Out);
 
         FVector Min = Out.Vertices[0].Position;
         FVector Max = Min;

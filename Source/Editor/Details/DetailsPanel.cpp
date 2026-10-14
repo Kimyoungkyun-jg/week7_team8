@@ -355,7 +355,6 @@ namespace
 
 			UMaterial* Override = MeshComponent->GetOverrideMaterial(Slot);
 			UMaterial* Effective = MeshComponent->GetMaterial(Slot);
-			UTexture2D* Texture = (Effective && Effective->Textures.Num() > 0) ? Effective->Textures[0] : nullptr;
 
 			ImGui::SameLine();
 
@@ -383,63 +382,71 @@ namespace
 					ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 110.0f);
 					ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
 
-					ImGui::TableNextRow();
-					ImGui::TableSetColumnIndex(0);
-					ImGui::Text("Texture");
-
-					ImGui::TableSetColumnIndex(1);
-
-					// 1: 텍스처 썸네일
-					if (Texture && Texture->GetResource())
+					for (int32 TextureIndex = 0; TextureIndex < 2; ++TextureIndex)
 					{
-						ImGui::Image((ImTextureID)Texture->GetResource()->GetSRV(), { ThumbnailSize, ThumbnailSize });
-						if (ImGui::IsItemHovered())
+						ImGui::PushID(TextureIndex);
+						UTexture2D* Texture = Effective && TextureIndex < Effective->Textures.Num()
+							? Effective->Textures[TextureIndex] : nullptr;
+
+						ImGui::TableNextRow();
+						ImGui::TableSetColumnIndex(0);
+						ImGui::TextUnformatted(TextureIndex == 0 ? "Color Texture" : "Normal Map");
+
+						ImGui::TableSetColumnIndex(1);
+
+						// 1: 텍스처 썸네일
+						if (Texture && Texture->GetResource())
 						{
-							ImGui::SetTooltip("%s", Texture->GetPath().c_str());
-						}
-					}
-					else
-					{
-						ImGui::Button("Empty", { ThumbnailSize, ThumbnailSize });
-					}
-					if (ImGui::BeginDragDropTarget())
-					{
-						if (const ImGuiPayload* Payload = ImGui::AcceptDragDropPayload(EditorDragDrop::Texture))
-						{
-							UTexture2D* DroppedTexture = *static_cast<UTexture2D**>(Payload->Data);
-							Override = EnsureMaterialOverride(MeshComponent, Slot, Effective, Override);
-
-							if (Override)
+							ImGui::Image((ImTextureID)Texture->GetResource()->GetSRV(), { ThumbnailSize, ThumbnailSize });
+							if (ImGui::IsItemHovered())
 							{
-								if (Override->Textures.Num() == 0)
-								{
-									Override->Textures.Add(nullptr);
-								}
-								Override->Textures[0] = DroppedTexture;
-								MeshComponent->OnPropertyChanged("OverrideMaterials");
-								Texture = DroppedTexture;
-								Effective = Override;
+								ImGui::SetTooltip("%s", Texture->GetPath().c_str());
 							}
 						}
-						ImGui::EndDragDropTarget();
-					}
-					ImGui::SameLine();
-
-					// 2: 텍스처 경로
-					if (Texture)
-					{
-						fs::path Path(Texture->GetPath());
-						FString FileName = Path.filename().string();
-
-						ImGui::TextWrapped("%s", FileName.c_str());
-						if (ImGui::IsItemHovered())
+						else
 						{
-							ImGui::SetTooltip("%s", Texture->GetPath().c_str());
+							ImGui::Button("Empty", { ThumbnailSize, ThumbnailSize });
 						}
-					}
-					else
-					{
-						ImGui::TextDisabled("(Empty)");
+						if (ImGui::BeginDragDropTarget())
+						{
+							if (const ImGuiPayload* Payload = ImGui::AcceptDragDropPayload(EditorDragDrop::Texture))
+							{
+								UTexture2D* DroppedTexture = *static_cast<UTexture2D**>(Payload->Data);
+								Override = EnsureMaterialOverride(MeshComponent, Slot, Effective, Override);
+
+								if (Override)
+								{
+									while (Override->Textures.Num() <= TextureIndex)
+									{
+										Override->Textures.Add(nullptr);
+									}
+									Override->Textures[TextureIndex] = DroppedTexture;
+									MeshComponent->OnPropertyChanged("OverrideMaterials");
+									Texture = DroppedTexture;
+									Effective = Override;
+								}
+							}
+							ImGui::EndDragDropTarget();
+						}
+						ImGui::SameLine();
+
+						// 2: 텍스처 경로
+						if (Texture)
+						{
+							fs::path Path(Texture->GetPath());
+							FString FileName = Path.filename().string();
+
+							ImGui::TextWrapped("%s", FileName.c_str());
+							if (ImGui::IsItemHovered())
+							{
+								ImGui::SetTooltip("%s", Texture->GetPath().c_str());
+							}
+						}
+						else
+						{
+							ImGui::TextDisabled("(Empty)");
+						}
+						ImGui::PopID();
 					}
 
 					ImGui::TableNextRow();

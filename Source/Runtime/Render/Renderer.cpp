@@ -12,6 +12,7 @@
 #include "RenderResourceManager.h"
 #include "DeferredViewTargets.h"
 #include "SceneRenderData.h"
+#include "Asset/AssetManager.h"
 
 #include "Camera/CameraComponent.h"
 
@@ -524,6 +525,13 @@ void FRenderer::BindMaterial(UMaterial* material, bool bInWireframe, bool bGBuff
 	for (size_t i = 0; i < material->Textures.size(); i++)
 	{
 		RenderCommand::BindShaderResource(static_cast<uint32>(i), material->Textures[i], EShaderBindFlagBits::Pixel);
+	}
+	if (!bGBufferPass && material->PSOType == EPSOType::StaticMesh_Opaque)
+	{
+		UTexture2D* NormalTexture = material->Textures.Num() > 1 ? material->Textures[1] : nullptr;
+		if (!NormalTexture)
+			NormalTexture = UAssetManager::GetAssetByPath<UTexture2D>("FlatNormalTexture");
+		RenderCommand::BindShaderResource(1, NormalTexture, EShaderBindFlagBits::Pixel);
 	}
 	RenderCommand::BindSamplerState(0, material->SamplerState, EShaderBindFlagBits::Pixel);
 }

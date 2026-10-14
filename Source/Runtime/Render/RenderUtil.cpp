@@ -1,6 +1,39 @@
 #include "EnginePCH.h"
 #include "RenderUtil.h"
 
+#include <regex>
+#include <unordered_set>
+
+namespace
+{
+	bool IsShaderSourceUpToDate(const fs::path& ShaderPath, fs::file_time_type CsoTime,
+		std::unordered_set<FString>& Visited)
+	{
+		std::error_code Ec;
+		const fs::path SourcePath = fs::absolute(ShaderPath, Ec).lexically_normal();
+		if (Ec) return false;
+		if (!Visited.insert(SourcePath.generic_string()).second) return true;
+
+		const auto SourceTime = fs::last_write_time(SourcePath, Ec);
+		if (Ec || SourceTime >= CsoTime) return false;
+
+		std::ifstream Source(SourcePath);
+		if (!Source) return false;
+
+		// UberLit_Phong 등의 래퍼뿐 아니라 공유 HLSL의 변경도 캐시를 무효화한다.
+		static const std::regex IncludePattern(R"(^\s*#\s*include\s*["<]([^">]+)[">])");
+		FString Line;
+		std::smatch Match;
+		while (std::getline(Source, Line))
+		{
+			if (std::regex_search(Line, Match, IncludePattern) &&
+				!IsShaderSourceUpToDate(SourcePath.parent_path() / Match[1].str(), CsoTime, Visited))
+				return false;
+		}
+		return !Source.bad();
+	}
+}
+
 FShaderByteCode RenderUtil::CompileShader(FString Path, const char* EntryPoint, EShaderType ShaderType, const D3D_SHADER_MACRO* Defines)
 {
 	const char* Target = (ShaderType == EShaderType::Vertex) ? "vs_5_0" : "ps_5_0";
@@ -73,12 +106,11 @@ bool RenderUtil::IsCsoUpToDate(const FString& ShaderPath, const FString& CsoPath
 	std::error_code Ec;  
 	if (!fs::exists(CsoPath, Ec)) return false;
 
-	const auto SrcTime = fs::last_write_time(ShaderPath, Ec);
-	if (Ec) return false;
 	const auto CsoTime = fs::last_write_time(CsoPath, Ec);
 	if (Ec) return false;
 
-	return CsoTime > SrcTime;
+	std::unordered_set<FString> Visited;
+	return IsShaderSourceUpToDate(ShaderPath, CsoTime, Visited);
 }
 
 FShaderByteCode RenderUtil::GetOrCompile(const FString& ShaderPath, const char* EntryPoint, EShaderType ShaderType, FString& OutCSOPath)
