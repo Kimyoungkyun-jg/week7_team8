@@ -201,6 +201,33 @@ void FSceneRenderer::UnbindForwardLighting(FRenderer* Renderer)
 	Renderer->UnbindResources(11, 1, EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
 }
 
+bool FSceneRenderer::AddWorldNormalPass(FRenderGraphBuilder& Graph, FRenderer* Renderer,
+	FSceneViewTargets& Targets, const FSceneRenderOptions& Options)
+{
+	const FRenderGraphTextureRef SceneColor = Graph.ImportTexture(Targets.SceneColor.get(), "SceneColor");
+	const FRenderGraphTextureRef Depth = Graph.ImportTexture(Targets.Depth.get(), "SceneDepth");
+	if (!SceneColor || !Depth) return false;
+
+	FRenderGraphRasterPassDesc Pass{};
+	Pass.Name = "WorldNormal";
+	Pass.ColorAttachments = { { SceneColor, ERenderGraphLoadAction::Clear, { 0.0f, 0.0f, 0.0f, 1.0f } } };
+	Pass.DepthAttachment = { Depth, ERenderGraphLoadAction::Clear, 1.0f, 0 };
+	return Graph.AddRasterPass(std::move(Pass), [this, Renderer, bDrawPrimitives = Options.bDrawPrimitives]
+		{
+			if (!bDrawPrimitives) return;
+			PrepareDrawData(Renderer, RenderData);
+			FMeshPassProcessor Processor;
+			std::vector<FMeshDrawBatch> Batches;
+			bCorePassSucceeded = Processor.Build(View, RenderData.RenderQueue,
+				&RenderData, EMeshPassType::WorldNormal, Batches);
+			if (bCorePassSucceeded)
+			{
+				Renderer->UploadViewMatrix(View.ViewProjectionMatrix);
+				Renderer->DrawMeshes(Batches);
+			}
+		});
+}
+
 bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Renderer, FSceneViewTargets& Targets,
 	const FSceneRenderOptions& Options, FSkyboxRenderer* Skybox)
 {
@@ -213,7 +240,8 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 
 	bCorePassSucceeded = true;
 	bClustersBuilt = false;
-	NormalRoughnessRef = {};
+	if (Options.bShowWorldNormal)
+		return AddWorldNormalPass(Graph, Renderer, Targets, Options);
 	if (RenderData.bHasSkyLight)
 	{
 		if (FSkyLightEnvironment* Pending = World->GetScene().FindPendingSkyLightEnvironment(RenderData.SkyLight.SourcePath))
@@ -256,7 +284,6 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 		const FRenderGraphTextureRef Normal = Graph.CreateTexture(HDRDesc, "NormalRoughness");
 		if (!BaseColor || !Normal)
 			return false;
-		NormalRoughnessRef = Normal;
 
 		if (Options.bDrawPrimitives)
 		{
@@ -347,13 +374,6 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 		Forward.ColorAttachments = {
 			{ LightingHDR, ERenderGraphLoadAction::Clear, { 0.0f, 0.0f, 0.0f, 1.0f } }
 		};
-		if (Options.bShowWorldNormal)
-		{
-			const auto Normal = Graph.CreateTexture(HDRDesc, "NormalRoughness");
-			NormalRoughnessRef = Normal;
-			Forward.ColorAttachments.push_back(
-				{ Normal, ERenderGraphLoadAction::Clear, { 0.0f, 0.0f, 0.0f, 1.0f } });
-		}
 		
 		Forward.DepthAttachment = { Depth, ERenderGraphLoadAction::Clear, 1.0f, 0 };
 		
@@ -420,13 +440,13 @@ bool FSceneRenderer::AddViewportPasses(FRenderGraphBuilder& Graph, FRenderer* Re
 	bHasFog = false;
 	bFXAAPassSucceeded = true;
 
-	if (Options.bDrawPrimitives && Callbacks.FireBall)
+	if (!Options.bShowWorldNormal && Options.bDrawPrimitives && Callbacks.FireBall)
 	{
 		FRenderGraphRasterPassDesc Pass = MakeViewportPass("FireBall", SceneColor);
 		Pass.ReadTextures = { Depth };
 		if (!Graph.AddRasterPass(std::move(Pass), Callbacks.FireBall)) return false;
 	}
-	if (Options.bDrawPrimitives && Options.bEnableFog && Callbacks.HeightFog)
+	if (!Options.bShowWorldNormal && Options.bDrawPrimitives && Options.bEnableFog && Callbacks.HeightFog)
 	{
 		FRenderGraphRasterPassDesc Pass = MakeViewportPass("HeightFog", SceneColor);
 		Pass.ReadTextures = { Depth };
@@ -435,7 +455,7 @@ bool FSceneRenderer::AddViewportPasses(FRenderGraphBuilder& Graph, FRenderer* Re
 			bHasFog = DrawFog();
 			})) return false;
 	}
-	if (Options.bDrawPrimitives)
+	if (!Options.bShowWorldNormal && Options.bDrawPrimitives)
 	{
 		if (!Graph.AddRasterPass(MakeViewportPass("Translucent", SceneColor, Depth),
 			[this, Renderer, GetFog = Callbacks.TranslucentFogConstants]
@@ -443,29 +463,19 @@ bool FSceneRenderer::AddViewportPasses(FRenderGraphBuilder& Graph, FRenderer* Re
 			RenderTranslucent(Renderer, GetFog ? GetFog(bHasFog) : nullptr);
 			})) return false;
 	}
-	if (Callbacks.SceneText &&
+	if (!Options.bShowWorldNormal && Callbacks.SceneText &&
 		!Graph.AddRasterPass(MakeViewportPass("SceneText", SceneColor, Depth), Callbacks.SceneText))
 		return false;
 
-	if (Options.bShowSceneDepth && Callbacks.DepthVisualization)
+	if (!Options.bShowWorldNormal && Options.bShowSceneDepth && Callbacks.DepthVisualization)
 	{
 		FRenderGraphRasterPassDesc Pass = MakeViewportPass("SceneDepthVisualization", SceneColor);
 		Pass.ReadTextures = { Depth };
 		if (!Graph.AddRasterPass(std::move(Pass), Callbacks.DepthVisualization)) return false;
 	}
-	else if (Options.bShowWorldNormal && Callbacks.NormalVisualization)
-	{
-		FRenderGraphRasterPassDesc Pass = MakeViewportPass("WorldNormalVisualization", SceneColor);
-		Pass.ReadTextures = { NormalRoughnessRef, Depth };
-		if (!Graph.AddRasterPass(std::move(Pass),
-			[&Graph, Normal = NormalRoughnessRef, DrawNormal = Callbacks.NormalVisualization]
-			{
-			DrawNormal(Graph.Resolve(Normal));
-			})) return false;
-	}
 
 	FRenderGraphTextureRef FinalColor = SceneColor;
-	if (Callbacks.FXAAOutput && Callbacks.FXAA)
+	if (!Options.bShowWorldNormal && Callbacks.FXAAOutput && Callbacks.FXAA)
 	{
 		FinalColor = Graph.ImportTexture(Callbacks.FXAAOutput, "FXAAOutput");
 		if (!FinalColor) return false;

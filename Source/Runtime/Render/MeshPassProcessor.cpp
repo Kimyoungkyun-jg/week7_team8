@@ -43,6 +43,14 @@ namespace
 		Batch.VertexBuffer = Mesh->GetVertexBuffer(LOD);
 		Batch.IndexBuffer = Mesh->GetIndexBuffer(LOD);
 		if (!Batch.VertexBuffer || !Batch.IndexBuffer) return false;
+		if (Pass == EMeshPassType::WorldNormal)
+		{
+			FPipelineState* Pipeline = FRenderResourceManager::GetPSO(EPSOType::StaticMesh_WorldNormal);
+			if (!Pipeline || !Pipeline->Shader || !Pipeline->Shader->VertexShader || !Pipeline->Shader->PixelShader)
+				return false;
+			Batch.Pipeline = *Pipeline;
+			return true;
+		}
 
 		if (Pass == EMeshPassType::Forward)
 		{
@@ -185,6 +193,8 @@ bool FMeshPassProcessor::Build(const FSceneView& View, const FRenderQueue& Queue
 	for (uint32 Index = Begin; Index < End; ++Index)
 	{
 		const FRenderPacket& Packet = Queue[Index];
+		if (Pass == EMeshPassType::WorldNormal &&
+			(!Packet.Material || Packet.Material->PSOType != EPSOType::StaticMesh_Opaque)) continue;
 		FMeshDrawBatch Batch;
 		if (!BuildBatch(Batch, Packet.Mesh, Packet.LODIndex, Packet.Material, Pass, View,
 			LightingModel, Packet.MaterialParamData, Packet.MaterialParamDataSize)) return false;

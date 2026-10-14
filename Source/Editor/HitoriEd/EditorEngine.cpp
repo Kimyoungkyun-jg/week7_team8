@@ -168,8 +168,6 @@ bool UEditorEngine::Init() {
 
 	SceneDepthRenderer = MakeUnique<FSceneDepthRenderer>();
 	SceneDepthRenderer->Init(Renderer);
-	WorldNormalRenderer = MakeUnique<FWorldNormalRenderer>();
-	WorldNormalRenderer->Init();
 
 	HeightFogRenderer = MakeUnique<FHeightFogRenderer>();
 	HeightFogRenderer->Init(Renderer);
@@ -761,11 +759,6 @@ bool UEditorEngine::RenderScene(FSceneViewTargets& Targets, const FSceneView& Sc
 		Callbacks.DepthVisualization = [this, &SceneView, DepthTarget, ColorTarget, Range = Options.SceneDepthRange]
 		{
 			SceneDepthRenderer->OnRender(SceneView, DepthTarget, ColorTarget, Range);
-		};
-	if (WorldNormalRenderer)
-		Callbacks.NormalVisualization = [this, DepthTarget, ColorTarget](FTexture2D* Normal)
-		{
-			WorldNormalRenderer->OnRender(Normal, DepthTarget, ColorTarget);
 		};
 
 	const bool bUseFXAA = Options.bEnableFXAA && !Options.bShowSceneDepth &&

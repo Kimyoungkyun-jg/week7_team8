@@ -72,6 +72,7 @@ enum class EMeshPassType : uint8
 	GBuffer,
 	Forward,
 	Translucent,
+	WorldNormal,
 };
 
 // CPU에서 프록시/패킷을 패스별 GPU 배치로 변환한다. GPU 명령은 호출하지 않는다.

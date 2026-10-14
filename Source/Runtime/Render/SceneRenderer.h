@@ -35,7 +35,6 @@ struct FScenePassCallbacks // 기본 도형 다 그려진 후 그려져야 될 �
 	std::function<FConstantBuffer*(bool)> TranslucentFogConstants;
 	std::function<void()> SceneText;
 	std::function<void()> DepthVisualization;
-	std::function<void(FTexture2D*)> NormalVisualization;
 	std::function<bool()> FXAA;
 	FTexture2D* FXAAOutput = nullptr;
 	FSceneOverlayCallbacks Overlays;
@@ -79,6 +78,8 @@ public:
 private:
 	bool AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Renderer, FSceneViewTargets& Targets,
 		const FSceneRenderOptions& Options, FSkyboxRenderer* Skybox);
+	bool AddWorldNormalPass(FRenderGraphBuilder& Graph, FRenderer* Renderer, FSceneViewTargets& Targets,
+		const FSceneRenderOptions& Options);
 	bool BindDeferredLighting(FRenderer* Renderer, uint32 Width, uint32 Height);
 	bool BindForwardLighting(FRenderer* Renderer, const FSceneRenderOptions& Options);
 	void UnbindForwardLighting(FRenderer* Renderer);
@@ -92,7 +93,6 @@ private:
 	bool bLightUploadSucceeded = false;
 	bool bClustersBuilt = false;
 	FViewContext CachedViewContext;
-	FRenderGraphTextureRef NormalRoughnessRef;
 	bool bCorePassSucceeded = true;
 	bool bFXAAPassSucceeded = true;
 	bool bHasFog = false;

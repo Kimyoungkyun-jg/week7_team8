@@ -22,6 +22,7 @@ enum class EPSOType : uint8
 	FireBall,
 	Billboard,
 	StaticMesh_Forward,
+	StaticMesh_WorldNormal,
 	Count
 };
 

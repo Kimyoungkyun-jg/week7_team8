@@ -1,31 +1,49 @@
-Texture2D<float4> WorldNormalTexture : register(t0);
-Texture2D<float> SceneDepthTexture : register(t1);
+#pragma pack_matrix(row_major)
 
-struct FPSInput
+cbuffer ViewConstants : register(b0)
 {
-    float4 Position : SV_POSITION;
+    matrix VP;
 };
 
-FPSInput mainVS(uint VertexID : SV_VertexID)
+cbuffer PerObject : register(b2)
 {
-    FPSInput Output;
-    float2 UV = float2((VertexID << 1) & 2, VertexID & 2);
-    Output.Position = float4(UV * float2(2.0f, -2.0f) + float2(-1.0f, 1.0f), 0.0f, 1.0f);
+    matrix World;
+    matrix NormalMatrix;
+};
+
+struct VS_INPUT
+{
+    float3 Position : POSITION;
+    float3 Normal : NORMAL;
+};
+
+struct PS_INPUT
+{
+    float4 Position : SV_POSITION;
+    float3 WorldNormal : TEXCOORD0;
+};
+
+PS_INPUT mainVS(VS_INPUT Input)
+{
+    PS_INPUT Output;
+
+    float4 WorldPosition = mul(float4(Input.Position, 1.0f), World);
+    Output.Position = mul(WorldPosition, VP);
+
+    // inverse-transpose 행렬로 변환해 비균일 스케일에도 대응한다.
+    Output.WorldNormal = mul(float4(Input.Normal, 0.0f), NormalMatrix).xyz;
+
     return Output;
 }
 
-float4 mainPS(FPSInput Input) : SV_Target
+float4 mainPS(PS_INPUT Input) : SV_Target
 {
-    int2 Pixel = int2(Input.Position.xy);
-    if (SceneDepthTexture.Load(int3(Pixel, 0)) >= 1.0f)
-        return float4(0.0f, 0.0f, 0.0f, 1.0f);
+    // 보간 후 정규화. 길이가 0인 노멀도 처리한다.
+    float LengthSquared = dot(Input.WorldNormal, Input.WorldNormal);
+    float3 N = LengthSquared > 1.0e-8f
+        ? Input.WorldNormal * rsqrt(LengthSquared)
+        : float3(0.0f, 0.0f, 1.0f);
 
-    float3 WorldNormal = WorldNormalTexture.Load(int3(Pixel, 0)).xyz;
-    float LengthSquared = dot(WorldNormal, WorldNormal);
-    if (LengthSquared < 1.0e-8f)
-        return float4(0.0f, 0.0f, 0.0f, 1.0f);
-
-    float3 N = WorldNormal * rsqrt(LengthSquared);
-    float3 EncodedNormal = saturate(N * 0.5f + 0.5f);
-    return float4(EncodedNormal, 1.0f);
+    // [-1, 1] → [0, 1]
+    return float4(N * 0.5f + 0.5f, 1.0f);
 }
