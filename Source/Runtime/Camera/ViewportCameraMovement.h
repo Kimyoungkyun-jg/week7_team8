@@ -32,12 +32,11 @@ struct FViewportCameraState
 inline void ApplyViewportCameraMovement(FViewportCameraState& Camera,
     const FViewportCameraInput& Input, float DeltaTime, float MoveSpeed, float MouseSensitivity)
 {
-    if (Input.bCaptured && Camera.bPerspective)
-    {
-        Camera.Rotation.Yaw += Input.MouseX * MouseSensitivity;
-        Camera.Rotation.Pitch = FMath::Clamp(
-            Camera.Rotation.Pitch + Input.MouseY * MouseSensitivity, -89.0f, 89.0f);
-    }
+	if (Input.bCaptured && Camera.bPerspective)
+	{
+		Camera.Rotation.Yaw += Input.MouseX * MouseSensitivity;
+		Camera.Rotation.Pitch += Input.MouseY * MouseSensitivity;
+	}
 
     const FQuat Orientation = Camera.Rotation.Quaternion();
     const FVector Forward = Orientation.GetForwardVector();

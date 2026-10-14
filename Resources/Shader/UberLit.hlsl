@@ -168,11 +168,12 @@ void CalculateSpotLight(inout FLightResult Result, FSceneLightRenderInfo Info,
     float RadiusFade = CalculateDistanceAttenuation(DistanceSquared, Info.PositionRadius.w * Info.PositionRadius.w);
     if (RadiusFade <= 0.0f) return;
     float3 L = ToLight / sqrt(max(DistanceSquared, 1.0e-6f));
-    float ConeCos = dot(-L, normalize(Info.DirectionOuterCos.xyz));
-    float ConeFade = CalculateConeAttenuation(ConeCos, Info.Parameters.x, Info.DirectionOuterCos.w);
+	float ConeCos = dot(-L, normalize(Info.DirectionOuterCos.xyz));
+	float ConeFade = CalculateConeAttenuation(ConeCos, Info.Parameters.x, Info.DirectionOuterCos.w);
+	ConeFade = pow(ConeFade, max(Info.Parameters.y, 0.0001f));
 
-    float3 Radiance = Info.ColorIntensity.rgb * max(Info.ColorIntensity.a, 0.0f)
-        * ConeFade * RadiusFade;
+	float3 Radiance = Info.ColorIntensity.rgb * max(Info.ColorIntensity.a, 0.0f)
+		* ConeFade * RadiusFade;
 
     AddLight(Result, N, V, L, Radiance, bIncludeSpecular);
 }
